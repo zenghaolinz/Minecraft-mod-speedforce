@@ -3,6 +3,7 @@ package com.example.speedforce.event;
 import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.capability.SpeedPlayerData;
 import com.example.speedforce.item.FlashSuitArmorItem;
+import com.example.speedforce.item.SuitType;
 import com.example.speedforce.network.ModNetworking;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
@@ -12,7 +13,7 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
@@ -54,18 +55,69 @@ public class PowerTickHandler {
             return;
         }
 
+        SuitType wornSuit = getWornSuitType(player);
+        handleSuitColorUpdate(player, data, wornSuit);
+        
+        int maxLevel = wornSuit != null ? 10 + wornSuit.getSpeedBonus() : 10;
+        if (data.speedLevel > maxLevel) {
+            data.speedLevel = maxLevel;
+            player.setData(ModAttachments.SPEED_PLAYER, data);
+        }
+
         applySpeedModifier(player, data);
         applyAttackModifier(player, data);
         applyAttackSpeedModifier(player, data);
         handleRegeneration(player, data);
         handleWaterWalk(player, data);
         handleWallRun(player, data);
-        handleSpeedFire(player, data);
+        handleSpeedFire(player, data, wornSuit);
         handlePhasing(player, data);
 
         if (player.tickCount % 20 == 0 && player instanceof ServerPlayer serverPlayer) {
             ModNetworking.syncToClient(serverPlayer);
         }
+    }
+
+    private static void handleSuitColorUpdate(Player player, SpeedPlayerData data, SuitType suitType) {
+        if (suitType != null) {
+            boolean colorChanged = false;
+            if (data.trailColorR != suitType.getTrailColorR()) {
+                data.trailColorR = suitType.getTrailColorR();
+                colorChanged = true;
+            }
+            if (data.trailColorG != suitType.getTrailColorG()) {
+                data.trailColorG = suitType.getTrailColorG();
+                colorChanged = true;
+            }
+            if (data.trailColorB != suitType.getTrailColorB()) {
+                data.trailColorB = suitType.getTrailColorB();
+                colorChanged = true;
+            }
+            if (colorChanged) {
+                player.setData(ModAttachments.SPEED_PLAYER, data);
+            }
+        }
+    }
+
+    private static SuitType getWornSuitType(Player player) {
+        ItemStack helmet = player.getItemBySlot(EquipmentSlot.HEAD);
+        ItemStack chestplate = player.getItemBySlot(EquipmentSlot.CHEST);
+        ItemStack leggings = player.getItemBySlot(EquipmentSlot.LEGS);
+        ItemStack boots = player.getItemBySlot(EquipmentSlot.FEET);
+
+        if (helmet.getItem() instanceof FlashSuitArmorItem helmetItem &&
+            chestplate.getItem() instanceof FlashSuitArmorItem chestplateItem &&
+            leggings.getItem() instanceof FlashSuitArmorItem leggingsItem &&
+            boots.getItem() instanceof FlashSuitArmorItem bootsItem) {
+            
+            SuitType type = helmetItem.getSuitType();
+            if (chestplateItem.getSuitType() == type &&
+                leggingsItem.getSuitType() == type &&
+                bootsItem.getSuitType() == type) {
+                return type;
+            }
+        }
+        return null;
     }
 
     private static float lastTickRate = 20.0F;
@@ -205,9 +257,9 @@ public class PowerTickHandler {
         }
     }
 
-    private static void handleSpeedFire(Player player, SpeedPlayerData data) {
+    private static void handleSpeedFire(Player player, SpeedPlayerData data, SuitType suitType) {
         if (data.speedLevel >= 5 && player.isSprinting()) {
-            if (!hasFullFlashSuit(player)) {
+            if (suitType == null) {
                 player.setRemainingFireTicks(60);
             }
         }
@@ -222,12 +274,5 @@ public class PowerTickHandler {
             player.noPhysics = false;
             player.setNoGravity(false);
         }
-    }
-
-    private static boolean hasFullFlashSuit(Player player) {
-        return player.getItemBySlot(EquipmentSlot.HEAD).getItem() instanceof FlashSuitArmorItem
-            && player.getItemBySlot(EquipmentSlot.CHEST).getItem() instanceof FlashSuitArmorItem
-            && player.getItemBySlot(EquipmentSlot.LEGS).getItem() instanceof FlashSuitArmorItem
-            && player.getItemBySlot(EquipmentSlot.FEET).getItem() instanceof FlashSuitArmorItem;
     }
 }

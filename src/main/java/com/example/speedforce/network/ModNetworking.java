@@ -5,8 +5,10 @@ import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.capability.SpeedPlayerData;
 import com.example.speedforce.client.ClientSpeedData;
 import com.example.speedforce.item.FlashSuitArmorItem;
+import com.example.speedforce.item.SuitType;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -43,7 +45,8 @@ public class ModNetworking {
                 if (context.player() instanceof ServerPlayer player) {
                     SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
                     if (data.hasPower) {
-                        int maxLevel = hasFullFlashSuit(player) ? 14 : 10;
+                        SuitType suitType = getWornSuitType(player);
+                        int maxLevel = suitType != null ? 10 + suitType.getSpeedBonus() : 10;
                         if (payload.increase()) {
                             data.speedLevel = Math.min(maxLevel, data.speedLevel + 1);
                         } else {
@@ -106,11 +109,14 @@ public class ModNetworking {
                 if (context.player() instanceof ServerPlayer player) {
                     SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
                     if (data.hasPower) {
-                        data.trailColorR = payload.r();
-                        data.trailColorG = payload.g();
-                        data.trailColorB = payload.b();
-                        player.setData(ModAttachments.SPEED_PLAYER, data);
-                        syncToClient(player);
+                        SuitType suitType = getWornSuitType(player);
+                        if (suitType == null) {
+                            data.trailColorR = payload.r();
+                            data.trailColorG = payload.g();
+                            data.trailColorB = payload.b();
+                            player.setData(ModAttachments.SPEED_PLAYER, data);
+                            syncToClient(player);
+                        }
                     }
                 }
             });
@@ -122,10 +128,24 @@ public class ModNetworking {
         PacketDistributor.sendToPlayer(player, new SyncSpeedDataPayload(data));
     }
 
-    private static boolean hasFullFlashSuit(ServerPlayer player) {
-        return player.getItemBySlot(EquipmentSlot.HEAD).getItem() instanceof FlashSuitArmorItem
-            && player.getItemBySlot(EquipmentSlot.CHEST).getItem() instanceof FlashSuitArmorItem
-            && player.getItemBySlot(EquipmentSlot.LEGS).getItem() instanceof FlashSuitArmorItem
-            && player.getItemBySlot(EquipmentSlot.FEET).getItem() instanceof FlashSuitArmorItem;
+    private static SuitType getWornSuitType(ServerPlayer player) {
+        ItemStack helmet = player.getItemBySlot(EquipmentSlot.HEAD);
+        ItemStack chestplate = player.getItemBySlot(EquipmentSlot.CHEST);
+        ItemStack leggings = player.getItemBySlot(EquipmentSlot.LEGS);
+        ItemStack boots = player.getItemBySlot(EquipmentSlot.FEET);
+
+        if (helmet.getItem() instanceof FlashSuitArmorItem helmetItem &&
+            chestplate.getItem() instanceof FlashSuitArmorItem chestplateItem &&
+            leggings.getItem() instanceof FlashSuitArmorItem leggingsItem &&
+            boots.getItem() instanceof FlashSuitArmorItem bootsItem) {
+            
+            SuitType type = helmetItem.getSuitType();
+            if (chestplateItem.getSuitType() == type &&
+                leggingsItem.getSuitType() == type &&
+                bootsItem.getSuitType() == type) {
+                return type;
+            }
+        }
+        return null;
     }
 }

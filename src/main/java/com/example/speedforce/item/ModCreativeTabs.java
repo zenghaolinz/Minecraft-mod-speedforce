@@ -23,6 +23,37 @@ public class ModCreativeTabs {
                 output.accept(ModItems.FLASH_CHESTPLATE.get());
                 output.accept(ModItems.FLASH_LEGGINGS.get());
                 output.accept(ModItems.FLASH_BOOTS.get());
+                
+                output.accept(ModItems.REVERSE_FLASH_HELMET.get());
+                output.accept(ModItems.REVERSE_FLASH_CHESTPLATE.get());
+                output.accept(ModItems.REVERSE_FLASH_LEGGINGS.get());
+                output.accept(ModItems.REVERSE_FLASH_BOOTS.get());
+                
+                output.accept(ModItems.ZOOM_HELMET.get());
+                output.accept(ModItems.ZOOM_CHESTPLATE.get());
+                output.accept(ModItems.ZOOM_LEGGINGS.get());
+                output.accept(ModItems.ZOOM_BOOTS.get());
+                
+                output.accept(ModItems.JAY_HELMET.get());
+                output.accept(ModItems.JAY_CHESTPLATE.get());
+                output.accept(ModItems.JAY_LEGGINGS.get());
+                output.accept(ModItems.JAY_BOOTS.get());
+                
+                output.accept(ModItems.EARTHX_HELMET.get());
+                output.accept(ModItems.EARTHX_CHESTPLATE.get());
+                output.accept(ModItems.EARTHX_LEGGINGS.get());
+                output.accept(ModItems.EARTHX_BOOTS.get());
+                
+                output.accept(ModItems.JAY_EARTH90_HELMET.get());
+                output.accept(ModItems.JAY_EARTH90_CHESTPLATE.get());
+                output.accept(ModItems.JAY_EARTH90_LEGGINGS.get());
+                output.accept(ModItems.JAY_EARTH90_BOOTS.get());
+                
+                output.accept(ModItems.FLASH_S1_HELMET.get());
+                output.accept(ModItems.FLASH_S1_CHESTPLATE.get());
+                output.accept(ModItems.FLASH_S1_LEGGINGS.get());
+                output.accept(ModItems.FLASH_S1_BOOTS.get());
+                
                 output.accept(ModItems.PARTICLE_ACCELERATOR.get());
             }).build());
 }

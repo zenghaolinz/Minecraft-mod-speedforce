@@ -10,8 +10,15 @@ import net.minecraft.world.level.Level;
 
 public class FlashSuitArmorItem extends ArmorItem {
 
-    public FlashSuitArmorItem(Holder<ArmorMaterial> material, ArmorItem.Type type, Properties properties) {
+    private final SuitType suitType;
+
+    public FlashSuitArmorItem(Holder<ArmorMaterial> material, ArmorItem.Type type, Properties properties, SuitType suitType) {
         super(material, type, properties);
+        this.suitType = suitType;
+    }
+
+    public SuitType getSuitType() {
+        return suitType;
     }
 
     public void inventoryTick(ItemStack stack, Level level, net.minecraft.world.entity.Entity entity, int slotId, boolean isSelected) {
