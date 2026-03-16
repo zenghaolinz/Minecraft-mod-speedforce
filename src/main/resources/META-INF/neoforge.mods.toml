@@ -5,9 +5,10 @@ issueTrackerURL = "https://github.com/example/speedforce/issues"
 
 [[mods]]
 modId = "speedforce"
-version = "1.0.1"
+version = "1.0.1v4"
 displayName = "Speed Force"
-authors = "example"
+authors = "曾浩林"
+logoFile = "logo.png"
 description = '''Adds Speed Force abilities to Minecraft'''
 
 [[mixins]]

@@ -23,10 +23,17 @@ public class SpeedHudRenderer {
         GuiGraphics graphics = event.getGuiGraphics();
 
         if (!ClientSpeedData.hasPower) {
-            graphics.fill(8, 8, 180, 40, 0x80000000);
-            graphics.drawString(mc.font, "未获得神速力", 12, 12, 0xFF5555);
-            graphics.drawString(mc.font, "获取方式: 中毒+闪电击中", 12, 24, 0xAAAAAA);
-            graphics.drawString(mc.font, "或使用粒子加速器", 12, 36, 0xAAAAAA);
+            if (ClientSpeedData.showHelp) {
+                graphics.fill(8, 8, 180, 52, 0x80000000);
+                graphics.drawString(mc.font, "未获得神速力", 12, 12, 0xFF5555);
+                graphics.drawString(mc.font, "获取方式: 中毒+闪电击中", 12, 24, 0xAAAAAA);
+                graphics.drawString(mc.font, "或使用粒子加速器", 12, 36, 0xAAAAAA);
+                graphics.drawString(mc.font, "U - 收起帮助", 12, 48, 0xAAAAAA);
+            } else {
+                graphics.fill(8, 8, 100, 24, 0x80000000);
+                graphics.drawString(mc.font, "未获得神速力", 12, 12, 0xFF5555);
+                graphics.drawString(mc.font, "[U] 帮助", 70, 12, 0xAAAAAA);
+            }
             return;
         }
 

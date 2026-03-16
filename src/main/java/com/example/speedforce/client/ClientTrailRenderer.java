@@ -11,6 +11,7 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
@@ -29,18 +30,23 @@ public class ClientTrailRenderer {
     private static class TrailPoint {
         public final Vec3 pos;
         public final Vec3[] jitters;
+        public final float yRot;
+        public final boolean isMoving;
 
-        public TrailPoint(Vec3 pos, Vec3[] jitters) {
+        public TrailPoint(Vec3 pos, Vec3[] jitters, float yRot, boolean isMoving) {
             this.pos = pos;
             this.jitters = jitters;
+            this.yRot = yRot;
+            this.isMoving = isMoving;
         }
     }
 
     private static final Deque<TrailPoint> history = new ArrayDeque<>();
-    private static final int MAX_AGE = 12;
+    private static final int MAX_AGE = 15;
     private static long lastTickCount = -1;
     
-    private static final float[] BRANCH_OFFSETS_X = {-0.4f, -0.2f, 0.0f, 0.2f, 0.4f};
+    private static final float[] BRANCH_OFFSETS_X = {-0.1f, 0.1f, -0.1f, 0.1f, 0.0f};
+    private static final float[] BRANCH_OFFSETS_Y = {0.2f, 0.6f, 1.0f, 1.4f, 1.7f};
 
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Pre event) {
@@ -54,13 +60,18 @@ public class ClientTrailRenderer {
 
         synchronized (history) {
             boolean isMoving = player.getDeltaMovement().lengthSqr() > 0.001;
+            double spread = isMoving ? 1.0 : 0.5;
             
-            if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0 && isMoving) {
+            if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0) {
                 Vec3[] jitters = new Vec3[5];
                 for (int i = 0; i < 5; i++) {
-                    jitters[i] = new Vec3((Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.8);
+                    jitters[i] = new Vec3(
+                        (Math.random() - 0.5) * 0.5 * spread, 
+                        (Math.random() - 0.5) * 0.2 * spread, 
+                        (Math.random() - 0.5) * 0.5 * spread
+                    );
                 }
-                history.addFirst(new TrailPoint(player.position(), jitters));
+                history.addFirst(new TrailPoint(player.position(), jitters, player.getYRot(), isMoving));
             } else if (!history.isEmpty()) {
                 history.removeLast();
             }
@@ -76,7 +87,8 @@ public class ClientTrailRenderer {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES) return;
 
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return;
+        Player player = mc.player;
+        if (player == null) return;
 
         if (mc.options.getCameraType() == net.minecraft.client.CameraType.FIRST_PERSON) return;
 
@@ -86,11 +98,20 @@ public class ClientTrailRenderer {
             PoseStack poseStack = event.getPoseStack();
             Vec3 cameraPos = event.getCamera().getPosition();
 
+            float pt = mc.getTimer().getGameTimeDeltaTicks();
+            double px = Mth.lerp(pt, player.xOld, player.getX());
+            double py = Mth.lerp(pt, player.yOld, player.getY());
+            double pz = Mth.lerp(pt, player.zOld, player.getZ());
+            Vec3 playerRenderPos = new Vec3(px, py, pz);
+
             poseStack.pushPose();
             Matrix4f pose = poseStack.last().pose();
 
             RenderSystem.enableBlend();
-            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+            RenderSystem.blendFuncSeparate(
+                GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE,
+                GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO
+            );
             RenderSystem.enableDepthTest();
             RenderSystem.disableCull();
             RenderSystem.depthMask(false);
@@ -99,7 +120,6 @@ public class ClientTrailRenderer {
             Tesselator tesselator = Tesselator.getInstance();
             BufferBuilder builder = tesselator.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
-            float[] yOffsets = {0.1f, 0.5f, 0.9f, 1.3f, 1.7f};
             int r = ClientSpeedData.trailColorR;
             int g = ClientSpeedData.trailColorG;
             int b = ClientSpeedData.trailColorB;
@@ -109,8 +129,9 @@ public class ClientTrailRenderer {
                 int age = 0;
 
                 for (TrailPoint tp : history) {
-                    float alpha = 1.0F - ((float) age / MAX_AGE);
-                    int a = (int) (alpha * alpha * 255);
+                    float ageRatio = (float) age / MAX_AGE;
+                    float alpha = 1.0F - (ageRatio * ageRatio);
+                    int a = (int) (alpha * 200);
                     if (a <= 5) {
                         age++;
                         continue;
@@ -118,14 +139,26 @@ public class ClientTrailRenderer {
 
                     Vec3 jitter = tp.jitters[branch];
                     float branchOffsetX = BRANCH_OFFSETS_X[branch];
+                    float branchOffsetY = BRANCH_OFFSETS_Y[branch];
                     
-                    double offsetX = branchOffsetX + (age == 0 ? 0 : jitter.x);
+                    float rad = (float) Math.toRadians(-tp.yRot);
+                    float cos = (float) Math.cos(rad);
+                    float sin = (float) Math.sin(rad);
 
-                    Vec3 currentPoint = tp.pos.add(offsetX, yOffsets[branch] + jitter.y, jitter.z);
+                    double spreadFactor = tp.isMoving ? (1.0 + ageRatio * 1.5) : 1.0;
+                    double localX = (branchOffsetX + (age == 0 ? 0 : jitter.x * (1 - ageRatio * 0.6))) * spreadFactor;
+                    double localZ = (age == 0 ? 0 : jitter.z * (1 - ageRatio * 0.6)) * spreadFactor;
+
+                    double globalOffsetX = localX * cos - localZ * sin;
+                    double globalOffsetZ = localX * sin + localZ * cos;
+
+                    Vec3 basePos = (age == 0) ? playerRenderPos : tp.pos;
+                    Vec3 currentPoint = basePos.add(globalOffsetX, branchOffsetY + jitter.y, globalOffsetZ);
 
                     if (prevPoint != null) {
-                        drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, 0.06f, r, g, b, (int)(a * 0.6));
-                        drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, 0.02f, 255, 255, 255, a);
+                        float width = 0.05f * (1 - ageRatio * 0.4f);
+                        drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, width, r, g, b, (int)(a * 0.8));
+                        drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, width * 0.3f, 255, 255, 255, a);
                     }
 
                     prevPoint = currentPoint;
@@ -136,7 +169,6 @@ public class ClientTrailRenderer {
             BufferUploader.drawWithShader(builder.buildOrThrow());
 
             RenderSystem.depthMask(true);
-            RenderSystem.disableDepthTest();
             RenderSystem.enableCull();
             RenderSystem.defaultBlendFunc();
             RenderSystem.disableBlend();

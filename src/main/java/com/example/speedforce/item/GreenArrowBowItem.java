@@ -1,5 +1,7 @@
 package com.example.speedforce.item;
 
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -18,6 +20,28 @@ public class GreenArrowBowItem extends BowItem {
     @Override
     public int getUseDuration(ItemStack stack, LivingEntity entity) {
         return 72000;
+    }
+
+    private boolean hasNormalArrow(Player player) {
+        if (player.getAbilities().instabuild) {
+            return true;
+        }
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            if (player.getInventory().getItem(i).getItem() == ModItems.NORMAL_ARROW.get()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+        ItemStack bowStack = player.getItemInHand(hand);
+        if (hasNormalArrow(player)) {
+            player.startUsingItem(hand);
+            return InteractionResultHolder.consume(bowStack);
+        }
+        return InteractionResultHolder.fail(bowStack);
     }
 
     private boolean hasFullGreenArrowSet(Player player) {
