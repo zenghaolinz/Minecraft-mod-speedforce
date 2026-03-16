@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/bow",
+  "textures": {
+    "layer0": "speedforce:item/green_arrow_bow_pulling_1"
+  }
+}

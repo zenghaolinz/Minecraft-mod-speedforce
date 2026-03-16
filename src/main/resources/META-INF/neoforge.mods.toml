@@ -5,7 +5,7 @@ issueTrackerURL = "https://github.com/example/speedforce/issues"
 
 [[mods]]
 modId = "speedforce"
-version = "1.0.0"
+version = "1.0.1"
 displayName = "Speed Force"
 authors = "example"
 description = '''Adds Speed Force abilities to Minecraft'''

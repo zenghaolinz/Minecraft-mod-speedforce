@@ -8,5 +8,8 @@ public class ClientSpeedData {
     public static int trailColorR = 255;
     public static int trailColorG = 210;
     public static int trailColorB = 0;
+    public static int customTrailColorR = 255;
+    public static int customTrailColorG = 210;
+    public static int customTrailColorB = 0;
     public static boolean showHelp = true;
 }

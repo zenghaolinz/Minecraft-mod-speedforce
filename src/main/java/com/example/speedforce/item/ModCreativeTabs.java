@@ -34,25 +34,27 @@ public class ModCreativeTabs {
                 output.accept(ModItems.ZOOM_LEGGINGS.get());
                 output.accept(ModItems.ZOOM_BOOTS.get());
                 
-                output.accept(ModItems.JAY_HELMET.get());
-                output.accept(ModItems.JAY_CHESTPLATE.get());
-                output.accept(ModItems.JAY_LEGGINGS.get());
-                output.accept(ModItems.JAY_BOOTS.get());
+                output.accept(ModItems.FLASH_S4_HELMET.get());
+                output.accept(ModItems.FLASH_S4_CHESTPLATE.get());
+                output.accept(ModItems.FLASH_S4_LEGGINGS.get());
+                output.accept(ModItems.FLASH_S4_BOOTS.get());
                 
-                output.accept(ModItems.EARTHX_HELMET.get());
-                output.accept(ModItems.EARTHX_CHESTPLATE.get());
-                output.accept(ModItems.EARTHX_LEGGINGS.get());
-                output.accept(ModItems.EARTHX_BOOTS.get());
+                output.accept(ModItems.FLASH_S5_HELMET.get());
+                output.accept(ModItems.FLASH_S5_CHESTPLATE.get());
+                output.accept(ModItems.FLASH_S5_LEGGINGS.get());
+                output.accept(ModItems.FLASH_S5_BOOTS.get());
                 
-                output.accept(ModItems.JAY_EARTH90_HELMET.get());
-                output.accept(ModItems.JAY_EARTH90_CHESTPLATE.get());
-                output.accept(ModItems.JAY_EARTH90_LEGGINGS.get());
-                output.accept(ModItems.JAY_EARTH90_BOOTS.get());
+                output.accept(ModItems.KID_FLASH_HELMET.get());
+                output.accept(ModItems.KID_FLASH_CHESTPLATE.get());
+                output.accept(ModItems.KID_FLASH_LEGGINGS.get());
+                output.accept(ModItems.KID_FLASH_BOOTS.get());
                 
-                output.accept(ModItems.FLASH_S1_HELMET.get());
-                output.accept(ModItems.FLASH_S1_CHESTPLATE.get());
-                output.accept(ModItems.FLASH_S1_LEGGINGS.get());
-                output.accept(ModItems.FLASH_S1_BOOTS.get());
+                output.accept(ModItems.GREEN_ARROW_HELMET.get());
+                output.accept(ModItems.GREEN_ARROW_CHESTPLATE.get());
+                output.accept(ModItems.GREEN_ARROW_LEGGINGS.get());
+                output.accept(ModItems.GREEN_ARROW_BOOTS.get());
+                output.accept(ModItems.GREEN_ARROW_BOW.get());
+                output.accept(ModItems.NORMAL_ARROW.get());
                 
                 output.accept(ModItems.PARTICLE_ACCELERATOR.get());
             }).build());

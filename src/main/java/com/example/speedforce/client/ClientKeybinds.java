@@ -123,4 +123,33 @@ class ClientModEvents {
     public static void registerParticleProviders(RegisterParticleProvidersEvent event) {
         event.registerSpriteSet(ModParticles.YELLOW_FLASH.get(), YellowFlashParticle.Provider::new);
     }
+
+    @SubscribeEvent
+    public static void registerEntityRenderers(net.neoforged.neoforge.client.event.EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(
+            com.example.speedforce.entity.ModEntityTypes.NORMAL_ARROW.get(), 
+            com.example.speedforce.client.renderer.NormalArrowRenderer::new
+        );
+    }
+
+    @SubscribeEvent
+    public static void onClientSetup(net.neoforged.fml.event.lifecycle.FMLClientSetupEvent event) {
+        event.enqueueWork(() -> {
+            net.minecraft.client.renderer.item.ItemProperties.register(
+                com.example.speedforce.item.ModItems.GREEN_ARROW_BOW.get(),
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("minecraft", "pull"),
+                (stack, level, entity, seed) -> {
+                    if (entity == null) return 0.0F;
+                    return entity.getUseItem() != stack ? 0.0F : 
+                        (float)(stack.getUseDuration(entity) - entity.getUseItemRemainingTicks()) / 20.0F;
+                }
+            );
+            net.minecraft.client.renderer.item.ItemProperties.register(
+                com.example.speedforce.item.ModItems.GREEN_ARROW_BOW.get(),
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("minecraft", "pulling"),
+                (stack, level, entity, seed) -> 
+                    entity != null && entity.isUsingItem() && entity.getUseItem() == stack ? 1.0F : 0.0F
+            );
+        });
+    }
 }

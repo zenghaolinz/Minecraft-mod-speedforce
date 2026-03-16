@@ -4,6 +4,7 @@ import com.example.speedforce.block.ModBlocks;
 import com.example.speedforce.block.entity.ModBlockEntities;
 import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.command.SpeedForceCommand;
+import com.example.speedforce.entity.ModEntityTypes;
 import com.example.speedforce.item.ModCreativeTabs;
 import com.example.speedforce.item.ModItems;
 import com.example.speedforce.particle.ModParticles;
@@ -23,6 +24,7 @@ public class SpeedForceMod {
         ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModCreativeTabs.CREATIVE_MODE_TABS.register(modEventBus);
         ModParticles.PARTICLE_TYPES.register(modEventBus);
+        ModEntityTypes.ENTITY_TYPES.register(modEventBus);
 
         NeoForge.EVENT_BUS.addListener(this::registerCommands);
     }

@@ -79,8 +79,8 @@ public class PowerTickHandler {
     }
 
     private static void handleSuitColorUpdate(Player player, SpeedPlayerData data, SuitType suitType) {
+        boolean colorChanged = false;
         if (suitType != null) {
-            boolean colorChanged = false;
             if (data.trailColorR != suitType.getTrailColorR()) {
                 data.trailColorR = suitType.getTrailColorR();
                 colorChanged = true;
@@ -93,9 +93,22 @@ public class PowerTickHandler {
                 data.trailColorB = suitType.getTrailColorB();
                 colorChanged = true;
             }
-            if (colorChanged) {
-                player.setData(ModAttachments.SPEED_PLAYER, data);
+        } else {
+            if (data.trailColorR != data.customTrailColorR) {
+                data.trailColorR = data.customTrailColorR;
+                colorChanged = true;
             }
+            if (data.trailColorG != data.customTrailColorG) {
+                data.trailColorG = data.customTrailColorG;
+                colorChanged = true;
+            }
+            if (data.trailColorB != data.customTrailColorB) {
+                data.trailColorB = data.customTrailColorB;
+                colorChanged = true;
+            }
+        }
+        if (colorChanged) {
+            player.setData(ModAttachments.SPEED_PLAYER, data);
         }
     }
 

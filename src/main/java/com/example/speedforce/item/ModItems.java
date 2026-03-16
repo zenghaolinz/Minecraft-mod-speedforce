@@ -41,10 +41,10 @@ public class ModItems {
     public static final Holder<ArmorMaterial> FLASH_MATERIAL = createArmorMaterial("flash");
     public static final Holder<ArmorMaterial> REVERSE_FLASH_MATERIAL = createArmorMaterial("reverse_flash");
     public static final Holder<ArmorMaterial> ZOOM_MATERIAL = createArmorMaterial("zoom");
-    public static final Holder<ArmorMaterial> JAY_MATERIAL = createArmorMaterial("jay");
-    public static final Holder<ArmorMaterial> EARTHX_MATERIAL = createArmorMaterial("earthx");
-    public static final Holder<ArmorMaterial> JAY_EARTH90_MATERIAL = createArmorMaterial("jay_earth90");
-    public static final Holder<ArmorMaterial> FLASH_S1_MATERIAL = createArmorMaterial("flash_s1");
+    public static final Holder<ArmorMaterial> FLASH_S4_MATERIAL = createArmorMaterial("flash_s4");
+    public static final Holder<ArmorMaterial> FLASH_S5_MATERIAL = createArmorMaterial("flash_s5");
+    public static final Holder<ArmorMaterial> KID_FLASH_MATERIAL = createArmorMaterial("kid_flash");
+    public static final Holder<ArmorMaterial> GREEN_ARROW_MATERIAL = createArmorMaterial("green_arrow");
 
     public static final DeferredItem<FlashSuitArmorItem> FLASH_HELMET = ITEMS.register("flash_helmet",
         () -> new FlashSuitArmorItem(FLASH_MATERIAL, ArmorItem.Type.HELMET, 
@@ -94,67 +94,73 @@ public class ModItems {
         () -> new FlashSuitArmorItem(ZOOM_MATERIAL, ArmorItem.Type.BOOTS, 
             new net.minecraft.world.item.Item.Properties(), SuitType.ZOOM));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_HELMET = ITEMS.register("jay_helmet",
-        () -> new FlashSuitArmorItem(JAY_MATERIAL, ArmorItem.Type.HELMET, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S4_HELMET = ITEMS.register("flash_s4_helmet",
+        () -> new FlashSuitArmorItem(FLASH_S4_MATERIAL, ArmorItem.Type.HELMET, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S4));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_CHESTPLATE = ITEMS.register("jay_chestplate",
-        () -> new FlashSuitArmorItem(JAY_MATERIAL, ArmorItem.Type.CHESTPLATE, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S4_CHESTPLATE = ITEMS.register("flash_s4_chestplate",
+        () -> new FlashSuitArmorItem(FLASH_S4_MATERIAL, ArmorItem.Type.CHESTPLATE, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S4));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_LEGGINGS = ITEMS.register("jay_leggings",
-        () -> new FlashSuitArmorItem(JAY_MATERIAL, ArmorItem.Type.LEGGINGS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S4_LEGGINGS = ITEMS.register("flash_s4_leggings",
+        () -> new FlashSuitArmorItem(FLASH_S4_MATERIAL, ArmorItem.Type.LEGGINGS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S4));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_BOOTS = ITEMS.register("jay_boots",
-        () -> new FlashSuitArmorItem(JAY_MATERIAL, ArmorItem.Type.BOOTS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S4_BOOTS = ITEMS.register("flash_s4_boots",
+        () -> new FlashSuitArmorItem(FLASH_S4_MATERIAL, ArmorItem.Type.BOOTS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S4));
 
-    public static final DeferredItem<FlashSuitArmorItem> EARTHX_HELMET = ITEMS.register("earthx_helmet",
-        () -> new FlashSuitArmorItem(EARTHX_MATERIAL, ArmorItem.Type.HELMET, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.EARTHX));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S5_HELMET = ITEMS.register("flash_s5_helmet",
+        () -> new FlashSuitArmorItem(FLASH_S5_MATERIAL, ArmorItem.Type.HELMET, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S5));
 
-    public static final DeferredItem<FlashSuitArmorItem> EARTHX_CHESTPLATE = ITEMS.register("earthx_chestplate",
-        () -> new FlashSuitArmorItem(EARTHX_MATERIAL, ArmorItem.Type.CHESTPLATE, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.EARTHX));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S5_CHESTPLATE = ITEMS.register("flash_s5_chestplate",
+        () -> new FlashSuitArmorItem(FLASH_S5_MATERIAL, ArmorItem.Type.CHESTPLATE, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S5));
 
-    public static final DeferredItem<FlashSuitArmorItem> EARTHX_LEGGINGS = ITEMS.register("earthx_leggings",
-        () -> new FlashSuitArmorItem(EARTHX_MATERIAL, ArmorItem.Type.LEGGINGS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.EARTHX));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S5_LEGGINGS = ITEMS.register("flash_s5_leggings",
+        () -> new FlashSuitArmorItem(FLASH_S5_MATERIAL, ArmorItem.Type.LEGGINGS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S5));
 
-    public static final DeferredItem<FlashSuitArmorItem> EARTHX_BOOTS = ITEMS.register("earthx_boots",
-        () -> new FlashSuitArmorItem(EARTHX_MATERIAL, ArmorItem.Type.BOOTS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.EARTHX));
+    public static final DeferredItem<FlashSuitArmorItem> FLASH_S5_BOOTS = ITEMS.register("flash_s5_boots",
+        () -> new FlashSuitArmorItem(FLASH_S5_MATERIAL, ArmorItem.Type.BOOTS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S5));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_EARTH90_HELMET = ITEMS.register("jay_earth90_helmet",
-        () -> new FlashSuitArmorItem(JAY_EARTH90_MATERIAL, ArmorItem.Type.HELMET, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY_EARTH90));
+    public static final DeferredItem<FlashSuitArmorItem> KID_FLASH_HELMET = ITEMS.register("kid_flash_helmet",
+        () -> new FlashSuitArmorItem(KID_FLASH_MATERIAL, ArmorItem.Type.HELMET, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.KID_FLASH));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_EARTH90_CHESTPLATE = ITEMS.register("jay_earth90_chestplate",
-        () -> new FlashSuitArmorItem(JAY_EARTH90_MATERIAL, ArmorItem.Type.CHESTPLATE, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY_EARTH90));
+    public static final DeferredItem<FlashSuitArmorItem> KID_FLASH_CHESTPLATE = ITEMS.register("kid_flash_chestplate",
+        () -> new FlashSuitArmorItem(KID_FLASH_MATERIAL, ArmorItem.Type.CHESTPLATE, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.KID_FLASH));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_EARTH90_LEGGINGS = ITEMS.register("jay_earth90_leggings",
-        () -> new FlashSuitArmorItem(JAY_EARTH90_MATERIAL, ArmorItem.Type.LEGGINGS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY_EARTH90));
+    public static final DeferredItem<FlashSuitArmorItem> KID_FLASH_LEGGINGS = ITEMS.register("kid_flash_leggings",
+        () -> new FlashSuitArmorItem(KID_FLASH_MATERIAL, ArmorItem.Type.LEGGINGS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.KID_FLASH));
 
-    public static final DeferredItem<FlashSuitArmorItem> JAY_EARTH90_BOOTS = ITEMS.register("jay_earth90_boots",
-        () -> new FlashSuitArmorItem(JAY_EARTH90_MATERIAL, ArmorItem.Type.BOOTS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.JAY_EARTH90));
+    public static final DeferredItem<FlashSuitArmorItem> KID_FLASH_BOOTS = ITEMS.register("kid_flash_boots",
+        () -> new FlashSuitArmorItem(KID_FLASH_MATERIAL, ArmorItem.Type.BOOTS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.KID_FLASH));
 
-    public static final DeferredItem<FlashSuitArmorItem> FLASH_S1_HELMET = ITEMS.register("flash_s1_helmet",
-        () -> new FlashSuitArmorItem(FLASH_S1_MATERIAL, ArmorItem.Type.HELMET, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S1));
+    public static final DeferredItem<FlashSuitArmorItem> GREEN_ARROW_HELMET = ITEMS.register("green_arrow_helmet",
+        () -> new FlashSuitArmorItem(GREEN_ARROW_MATERIAL, ArmorItem.Type.HELMET, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.GREEN_ARROW));
 
-    public static final DeferredItem<FlashSuitArmorItem> FLASH_S1_CHESTPLATE = ITEMS.register("flash_s1_chestplate",
-        () -> new FlashSuitArmorItem(FLASH_S1_MATERIAL, ArmorItem.Type.CHESTPLATE, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S1));
+    public static final DeferredItem<FlashSuitArmorItem> GREEN_ARROW_CHESTPLATE = ITEMS.register("green_arrow_chestplate",
+        () -> new FlashSuitArmorItem(GREEN_ARROW_MATERIAL, ArmorItem.Type.CHESTPLATE, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.GREEN_ARROW));
 
-    public static final DeferredItem<FlashSuitArmorItem> FLASH_S1_LEGGINGS = ITEMS.register("flash_s1_leggings",
-        () -> new FlashSuitArmorItem(FLASH_S1_MATERIAL, ArmorItem.Type.LEGGINGS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S1));
+    public static final DeferredItem<FlashSuitArmorItem> GREEN_ARROW_LEGGINGS = ITEMS.register("green_arrow_leggings",
+        () -> new FlashSuitArmorItem(GREEN_ARROW_MATERIAL, ArmorItem.Type.LEGGINGS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.GREEN_ARROW));
 
-    public static final DeferredItem<FlashSuitArmorItem> FLASH_S1_BOOTS = ITEMS.register("flash_s1_boots",
-        () -> new FlashSuitArmorItem(FLASH_S1_MATERIAL, ArmorItem.Type.BOOTS, 
-            new net.minecraft.world.item.Item.Properties(), SuitType.FLASH_S1));
+    public static final DeferredItem<FlashSuitArmorItem> GREEN_ARROW_BOOTS = ITEMS.register("green_arrow_boots",
+        () -> new FlashSuitArmorItem(GREEN_ARROW_MATERIAL, ArmorItem.Type.BOOTS, 
+            new net.minecraft.world.item.Item.Properties(), SuitType.GREEN_ARROW));
+
+    public static final DeferredItem<GreenArrowBowItem> GREEN_ARROW_BOW = ITEMS.register("green_arrow_bow",
+        () -> new GreenArrowBowItem(new net.minecraft.world.item.Item.Properties().durability(384)));
+
+    public static final DeferredItem<NormalArrowItem> NORMAL_ARROW = ITEMS.register("normal_arrow",
+        () -> new NormalArrowItem(new net.minecraft.world.item.Item.Properties()));
 }

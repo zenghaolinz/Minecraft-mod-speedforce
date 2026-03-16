@@ -6,7 +6,9 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record SyncSpeedDataPayload(boolean hasPower, int speedLevel, boolean isBulletTimeActive, boolean isPhasing, int trailColorR, int trailColorG, int trailColorB) 
+public record SyncSpeedDataPayload(boolean hasPower, int speedLevel, boolean isBulletTimeActive, boolean isPhasing, 
+                                   int trailColorR, int trailColorG, int trailColorB,
+                                   int customTrailColorR, int customTrailColorG, int customTrailColorB) 
     implements CustomPacketPayload {
     
     public static final Type<SyncSpeedDataPayload> TYPE = 
@@ -21,15 +23,21 @@ public record SyncSpeedDataPayload(boolean hasPower, int speedLevel, boolean isB
             buf.writeInt(payload.trailColorR());
             buf.writeInt(payload.trailColorG());
             buf.writeInt(payload.trailColorB());
+            buf.writeInt(payload.customTrailColorR());
+            buf.writeInt(payload.customTrailColorG());
+            buf.writeInt(payload.customTrailColorB());
         },
         buf -> new SyncSpeedDataPayload(
             buf.readBoolean(), buf.readInt(), buf.readBoolean(), buf.readBoolean(),
+            buf.readInt(), buf.readInt(), buf.readInt(),
             buf.readInt(), buf.readInt(), buf.readInt()
         )
     );
 
     public SyncSpeedDataPayload(SpeedPlayerData data) {
-        this(data.hasPower, data.speedLevel, data.isBulletTimeActive, data.isPhasing, data.trailColorR, data.trailColorG, data.trailColorB);
+        this(data.hasPower, data.speedLevel, data.isBulletTimeActive, data.isPhasing, 
+             data.trailColorR, data.trailColorG, data.trailColorB,
+             data.customTrailColorR, data.customTrailColorG, data.customTrailColorB);
     }
 
     @Override

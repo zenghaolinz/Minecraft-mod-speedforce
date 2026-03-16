@@ -4,10 +4,10 @@ public enum SuitType {
     FLASH("flash", 255, 210, 0, 4),
     REVERSE_FLASH("reverse_flash", 255, 0, 0, 5),
     ZOOM("zoom", 0, 150, 255, 6),
-    JAY("jay", 255, 200, 50, 4),
-    EARTHX("earthx", 180, 0, 50, 4),
-    JAY_EARTH90("jay_earth90", 255, 255, 255, 4),
-    FLASH_S1("flash_s1", 255, 210, 0, 4);
+    FLASH_S4("flash_s4", 255, 210, 0, 4),
+    FLASH_S5("flash_s5", 255, 210, 0, 4),
+    KID_FLASH("kid_flash", 255, 200, 0, 4),
+    GREEN_ARROW("green_arrow", 0, 180, 0, 0);
 
     private final String name;
     private final int trailColorR;

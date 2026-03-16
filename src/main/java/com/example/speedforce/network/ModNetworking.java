@@ -94,11 +94,15 @@ public class ModNetworking {
                 ClientSpeedData.trailColorR = payload.trailColorR();
                 ClientSpeedData.trailColorG = payload.trailColorG();
                 ClientSpeedData.trailColorB = payload.trailColorB();
+                ClientSpeedData.customTrailColorR = payload.customTrailColorR();
+                ClientSpeedData.customTrailColorG = payload.customTrailColorG();
+                ClientSpeedData.customTrailColorB = payload.customTrailColorB();
 
                 if (context.player() != null) {
                     context.player().setData(ModAttachments.SPEED_PLAYER,
                         new SpeedPlayerData(payload.hasPower(), payload.speedLevel(), payload.isBulletTimeActive(), payload.isPhasing(), 
-                                            payload.trailColorR(), payload.trailColorG(), payload.trailColorB())
+                                            payload.trailColorR(), payload.trailColorG(), payload.trailColorB(),
+                                            payload.customTrailColorR(), payload.customTrailColorG(), payload.customTrailColorB())
                     );
                 }
             });
@@ -110,13 +114,16 @@ public class ModNetworking {
                     SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
                     if (data.hasPower) {
                         SuitType suitType = getWornSuitType(player);
+                        data.customTrailColorR = payload.r();
+                        data.customTrailColorG = payload.g();
+                        data.customTrailColorB = payload.b();
                         if (suitType == null) {
                             data.trailColorR = payload.r();
                             data.trailColorG = payload.g();
                             data.trailColorB = payload.b();
-                            player.setData(ModAttachments.SPEED_PLAYER, data);
-                            syncToClient(player);
                         }
+                        player.setData(ModAttachments.SPEED_PLAYER, data);
+                        syncToClient(player);
                     }
                 }
             });
