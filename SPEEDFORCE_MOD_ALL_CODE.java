@@ -1289,6 +1289,654 @@ public class QuiverScreen extends AbstractContainerScreen<QuiverMenu> {
     }
 }
 // ============================================================================
+// src/main/java/com/example/speedforce/client/ClientSpeedData.java
+// ============================================================================
+package com.example.speedforce.client;
+
+public class ClientSpeedData {
+    public static boolean hasPower = false;
+    public static int speedLevel = 0;
+    public static boolean isBulletTimeActive = false;
+    public static boolean isPhasing = false;
+    public static int trailColorR = 255;
+    public static int trailColorG = 210;
+    public static int trailColorB = 0;
+    public static int customTrailColorR = 255;
+    public static int customTrailColorG = 210;
+    public static int customTrailColorB = 0;
+    public static boolean showHelp = true;
+    public static int clientHistorySize = 0;
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/ClientRewindData.java
+// ============================================================================
+package com.example.speedforce.client;
+
+public class ClientRewindData {
+    public static int phase = 0;
+    public static int framesRewound = 0;
+    public static int rewindSpeed = 1;
+    public static int totalHistorySize = 0;
+
+    public static final int PHASE_IDLE = 0;
+    public static final int PHASE_REWINDING = 1;
+
+    public static boolean isRewinding() {
+        return phase == PHASE_REWINDING;
+    }
+
+    public static float getRewindProgress() {
+        if (totalHistorySize <= 0) return 0;
+        return (float) framesRewound / totalHistorySize;
+    }
+
+    public static void reset() {
+        phase = PHASE_IDLE;
+        framesRewound = 0;
+        rewindSpeed = 1;
+        totalHistorySize = 0;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/ClientRemnantData.java
+// ============================================================================
+package com.example.speedforce.client;
+
+public class ClientRemnantData {
+    public static boolean hasRemnant = false;
+    public static int remainingSeconds = 0;
+    
+    public static void setRemnantActive(boolean active, int seconds) {
+        hasRemnant = active;
+        remainingSeconds = seconds;
+    }
+    
+    public static void reset() {
+        hasRemnant = false;
+        remainingSeconds = 0;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/RewindAnimationHandler.java
+// Updated v1.0.7v6 - Increased animSpeed to 15.0f
+// ============================================================================
+package com.example.speedforce.client;
+
+import com.example.speedforce.SpeedForceMod;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Pose;
+import net.minecraft.world.entity.player.Player;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.RenderLivingEvent;
+
+import java.lang.reflect.Field;
+
+@EventBusSubscriber(modid = SpeedForceMod.MOD_ID, value = Dist.CLIENT)
+public class RewindAnimationHandler {
+
+    private static Field positionField;
+    private static Field speedField;
+    
+    static {
+        try {
+            positionField = net.minecraft.world.entity.WalkAnimationState.class.getDeclaredField("position");
+            positionField.setAccessible(true);
+            speedField = net.minecraft.world.entity.WalkAnimationState.class.getDeclaredField("speed");
+            speedField.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @SubscribeEvent
+    public static void onRenderLivingPre(RenderLivingEvent.Pre<Player, PlayerModel<Player>> event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        if (player != Minecraft.getInstance().player) return;
+        if (!ClientRewindData.isRewinding()) return;
+
+        float partialTicks = event.getPartialTick();
+        float fakePosition = (player.tickCount + partialTicks) * 0.6f;
+        
+        try {
+            if (positionField != null && speedField != null) {
+                positionField.setFloat(player.walkAnimation, fakePosition);
+                speedField.setFloat(player.walkAnimation, 1.0f);
+            }
+        } catch (IllegalAccessException ignored) {}
+        
+        @SuppressWarnings("unchecked")
+        PlayerModel<Player> model = (PlayerModel<Player>) event.getRenderer().getModel();
+        
+        float gameTime = player.tickCount + partialTicks;
+        float animSpeed = 15.0f;
+        float legAmplitude = 1.2f;
+        float armAmplitude = 0.8f;
+        
+        float cycle = Mth.sin(gameTime * animSpeed) * legAmplitude;
+
+        model.leftLeg.xRot = cycle;
+        model.rightLeg.xRot = -cycle;
+        
+        model.leftArm.xRot = -cycle * armAmplitude / legAmplitude;
+        model.rightArm.xRot = cycle * armAmplitude / legAmplitude;
+        
+        model.leftLeg.yRot = 0;
+        model.rightLeg.yRot = 0;
+        model.leftLeg.zRot = 0;
+        model.rightLeg.zRot = 0;
+        
+        model.leftArm.yRot = 0;
+        model.rightArm.yRot = 0;
+        model.leftArm.zRot = Mth.sin(gameTime * animSpeed * 0.5f) * 0.1f;
+        model.rightArm.zRot = -Mth.sin(gameTime * animSpeed * 0.5f) * 0.1f;
+        
+        model.body.yRot = Mth.sin(gameTime * animSpeed * 0.3f) * 0.05f;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/RewindEffectRenderer.java
+// ============================================================================
+package com.example.speedforce.client;
+
+import com.example.speedforce.SpeedForceMod;
+import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import org.joml.Matrix4f;
+
+import java.util.Random;
+
+@EventBusSubscriber(modid = SpeedForceMod.MOD_ID, value = Dist.CLIENT)
+public class RewindEffectRenderer {
+
+    private static final int LAYER_COUNT = 3;
+    private static final int LIGHTNINGS_PER_LAYER = 4;
+    private static final float[] LAYER_HEIGHTS = {0.5f, 1.0f, 1.4f};
+    private static final float ORBIT_RADIUS = 0.7f;
+    private static final int SEGMENTS_PER_LIGHTNING = 3;
+
+    @SubscribeEvent
+    public static void onRenderLevel(RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES) return;
+        if (!ClientRewindData.isRewinding()) return;
+        
+        Minecraft mc = Minecraft.getInstance();
+        Player player = mc.player;
+        if (player == null) return;
+
+        PoseStack poseStack = event.getPoseStack();
+        Vec3 cameraPos = event.getCamera().getPosition();
+        float pt = mc.getTimer().getGameTimeDeltaTicks();
+        float gameTime = player.tickCount + pt;
+        
+        double px = Mth.lerp(pt, player.xOld, player.getX());
+        double py = Mth.lerp(pt, player.yOld, player.getY());
+        double pz = Mth.lerp(pt, player.zOld, player.getZ());
+        Vec3 playerPos = new Vec3(px, py, pz);
+        
+        int r = ClientSpeedData.trailColorR;
+        int g = ClientSpeedData.trailColorG;
+        int b = ClientSpeedData.trailColorB;
+
+        poseStack.pushPose();
+        Matrix4f pose = poseStack.last().pose();
+
+        RenderSystem.enableBlend();
+        RenderSystem.blendFuncSeparate(
+            GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE,
+            GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO
+        );
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableCull();
+        RenderSystem.depthMask(false);
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tesselator = Tesselator.getInstance();
+        BufferBuilder builder = tesselator.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        Random random = new Random();
+        
+        for (int layer = 0; layer < LAYER_COUNT; layer++) {
+            float height = LAYER_HEIGHTS[layer];
+            float rotationOffset = layer * (float)(Math.PI / LAYER_COUNT);
+            
+            for (int i = 0; i < LIGHTNINGS_PER_LAYER; i++) {
+                float baseAngle = (float)(i * 2 * Math.PI / LIGHTNINGS_PER_LAYER);
+                float currentAngle = baseAngle + gameTime * 0.3f + rotationOffset;
+                
+                Vec3 prevPoint = null;
+                
+                for (int seg = 0; seg <= SEGMENTS_PER_LIGHTNING; seg++) {
+                    float segmentAngle = currentAngle + seg * (float)(Math.PI / 6);
+                    float segHeight = height + seg * 0.05f;
+                    float segRadius = ORBIT_RADIUS + (seg % 2 == 0 ? 0.05f : -0.05f);
+                    
+                    double x = Math.cos(segmentAngle) * segRadius;
+                    double z = Math.sin(segmentAngle) * segRadius;
+                    
+                    random.setSeed((long)(gameTime * 100 + layer * 1000 + i * 10000 + seg));
+                    double jitterX = (random.nextDouble() - 0.5) * 0.15;
+                    double jitterY = (random.nextDouble() - 0.5) * 0.1;
+                    double jitterZ = (random.nextDouble() - 0.5) * 0.15;
+                    
+                    Vec3 currentPoint = playerPos.add(x + jitterX, segHeight + jitterY, z + jitterZ);
+                    
+                    if (prevPoint != null) {
+                        float segRatio = (float) seg / SEGMENTS_PER_LIGHTNING;
+                        int alpha = (int)(200 * (1.0f - segRatio * 0.3f));
+                        float width = 0.04f * (1.0f - segRatio * 0.2f);
+                        
+                        drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, width, r, g, b, alpha);
+                        drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, width * 0.3f, 255, 255, 255, alpha);
+                    }
+                    
+                    prevPoint = currentPoint;
+                }
+            }
+        }
+
+        BufferUploader.drawWithShader(builder.buildOrThrow());
+
+        RenderSystem.depthMask(true);
+        RenderSystem.enableCull();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableBlend();
+        poseStack.popPose();
+    }
+
+    private static void drawLightningSegment(BufferBuilder builder, Matrix4f pose, Vec3 start, Vec3 end, 
+                                              Vec3 cameraPos, float width, int r, int g, int b, int a) {
+        Vec3 dir = end.subtract(start);
+        if (dir.lengthSqr() < 1e-7) return;
+
+        Vec3 normal = dir.cross(cameraPos.subtract(start)).normalize().scale(width);
+
+        float sx = (float)(start.x - cameraPos.x);
+        float sy = (float)(start.y - cameraPos.y);
+        float sz = (float)(start.z - cameraPos.z);
+
+        float ex = (float)(end.x - cameraPos.x);
+        float ey = (float)(end.y - cameraPos.y);
+        float ez = (float)(end.z - cameraPos.z);
+
+        float nx = (float)normal.x, ny = (float)normal.y, nz = (float)normal.z;
+
+        builder.addVertex(pose, sx + nx, sy + ny, sz + nz).setColor(r, g, b, a);
+        builder.addVertex(pose, sx - nx, sy - ny, sz - nz).setColor(r, g, b, a);
+        builder.addVertex(pose, ex - nx, ey - ny, ez - nz).setColor(r, g, b, a);
+        builder.addVertex(pose, ex + nx, ey + ny, ez + nz).setColor(r, g, b, a);
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/renderer/TimeRemnantRenderer.java
+// ============================================================================
+package com.example.speedforce.client.renderer;
+
+import com.example.speedforce.entity.TimeRemnantEntity;
+import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.minecraft.MinecraftProfileTexture;
+import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.geom.ModelLayers;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.client.renderer.entity.LivingEntityRenderer;
+import net.minecraft.client.renderer.entity.MobRenderer;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+@EventBusSubscriber(modid = SpeedForceMod.MOD_ID, value = Dist.CLIENT)
+public class TimeRemnantRenderer extends MobRenderer<TimeRemnantEntity, PlayerModel<TimeRemnantEntity>> {
+
+    private static final Map<UUID, ResourceLocation> SKIN_CACHE = new ConcurrentHashMap<>();
+    
+    public TimeRemnantRenderer(EntityRendererProvider.Context context) {
+        super(context, new PlayerModel<>(context.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
+    }
+
+    @Override
+    public ResourceLocation getTextureLocation(TimeRemnantEntity entity) {
+        UUID ownerUUID = entity.getOwnerUUID();
+        if (ownerUUID == null) {
+            return DefaultPlayerSkin.getDefaultTexture();
+        }
+        
+        ResourceLocation cachedSkin = SKIN_CACHE.get(ownerUUID);
+        if (cachedSkin != null) {
+            return cachedSkin;
+        }
+        
+        Player owner = entity.getOwner();
+        if (owner instanceof AbstractClientPlayer clientPlayer) {
+            ResourceLocation skinLocation = clientPlayer.getSkin().texture();
+            SKIN_CACHE.put(ownerUUID, skinLocation);
+            return skinLocation;
+        }
+        
+        return DefaultPlayerSkin.getDefaultTexture();
+    }
+
+    @SubscribeEvent
+    public static void onRenderLevel(RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES) return;
+        
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+
+        PoseStack poseStack = event.getPoseStack();
+        Vec3 cameraPos = event.getCamera().getPosition();
+
+        List<TimeRemnantEntity> remnants = mc.level.getEntitiesOfClass(TimeRemnantEntity.class, 
+            net.minecraft.world.phys.AABB.INFINITE);
+        
+        for (TimeRemnantEntity remnant : remnants) {
+            if (remnant.shouldRenderTrail()) {
+                renderRemnantTrail(remnant, poseStack, cameraPos);
+            }
+        }
+    }
+
+    private static void renderRemnantTrail(TimeRemnantEntity entity, PoseStack poseStack, Vec3 cameraPos) {
+        List<Vec3> trailHistory = entity.getTrailHistory();
+        if (trailHistory.size() < 2) return;
+
+        int r = entity.getTrailColorR();
+        int g = entity.getTrailColorG();
+        int b = entity.getTrailColorB();
+
+        poseStack.pushPose();
+        Matrix4f pose = poseStack.last().pose();
+
+        RenderSystem.enableBlend();
+        RenderSystem.blendFuncSeparate(
+            GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE,
+            GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO
+        );
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableCull();
+        RenderSystem.depthMask(false);
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tesselator = Tesselator.getInstance();
+        BufferBuilder builder = tesselator.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        Vec3 prevPoint = null;
+        int age = 0;
+        int maxAge = trailHistory.size();
+        boolean drewAnything = false;
+
+        for (Vec3 point : trailHistory) {
+            float ageRatio = (float) age / maxAge;
+            float alpha = 1.0F - (ageRatio * ageRatio);
+            int a = (int)(alpha * 180);
+            if (a <= 5) {
+                age++;
+                continue;
+            }
+
+            Vec3 currentPoint = point.add(0, 1.0, 0);
+
+            if (prevPoint != null) {
+                float width = 0.04f * (1 - ageRatio * 0.4f);
+                drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, width, r, g, b, (int)(a * 0.8));
+                drawLightningSegment(builder, pose, prevPoint, currentPoint, cameraPos, width * 0.3f, 255, 255, 255, a);
+                drewAnything = true;
+            }
+
+            prevPoint = currentPoint;
+            age++;
+        }
+
+        if (!drewAnything) {
+            builder.addVertex(pose, 0, 0, 0).setColor(0, 0, 0, 0);
+            builder.addVertex(pose, 0, 0, 0).setColor(0, 0, 0, 0);
+            builder.addVertex(pose, 0, 0, 0).setColor(0, 0, 0, 0);
+            builder.addVertex(pose, 0, 0, 0).setColor(0, 0, 0, 0);
+        }
+
+        BufferUploader.drawWithShader(builder.buildOrThrow());
+
+        RenderSystem.depthMask(true);
+        RenderSystem.enableCull();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableBlend();
+        poseStack.popPose();
+    }
+
+    private static void drawLightningSegment(BufferBuilder builder, Matrix4f pose, Vec3 start, Vec3 end, 
+                                       Vec3 cameraPos, float width, int r, int g, int b, int a) {
+        Vec3 dir = end.subtract(start);
+        if (dir.lengthSqr() < 1e-7) return;
+
+        Vec3 normal = dir.cross(cameraPos.subtract(start)).normalize().scale(width);
+
+        float sx = (float)(start.x - cameraPos.x);
+        float sy = (float)(start.y - cameraPos.y);
+        float sz = (float)(start.z - cameraPos.z);
+
+        float ex = (float)(end.x - cameraPos.x);
+        float ey = (float)(end.y - cameraPos.y);
+        float ez = (float)(end.z - cameraPos.z);
+
+        float nx = (float)normal.x, ny = (float)normal.y, nz = (float)normal.z;
+
+        builder.addVertex(pose, sx + nx, sy + ny, sz + nz).setColor(r, g, b, a);
+        builder.addVertex(pose, sx - nx, sy - ny, sz - nz).setColor(r, g, b, a);
+        builder.addVertex(pose, ex - nx, ey - ny, ez - nz).setColor(r, g, b, a);
+        builder.addVertex(pose, ex + nx, ey + ny, ez + nz).setColor(r, g, b, a);
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/event/TimeRemnantHandler.java
+// ============================================================================
+package com.example.speedforce.event;
+
+import com.example.speedforce.capability.ModAttachments;
+import com.example.speedforce.capability.SpeedPlayerData;
+import com.example.speedforce.entity.ModEntityTypes;
+import com.example.speedforce.entity.TimeRemnantEntity;
+import com.example.speedforce.network.RemnantStatePayload;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+@EventBusSubscriber(modid = "speedforce")
+public class TimeRemnantHandler {
+
+    private static final Map<UUID, Integer> PLAYER_REMNANT_IDS = new HashMap<>();
+
+    public static void summonRemnant(ServerPlayer player) {
+        SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
+        
+        if (!data.hasPower || data.speedLevel < 4) {
+            return;
+        }
+        
+        if (PLAYER_REMNANT_IDS.containsKey(player.getUUID())) {
+            dismissRemnant(player);
+            return;
+        }
+        
+        ServerLevel level = player.serverLevel();
+        
+        TimeRemnantEntity remnant = new TimeRemnantEntity(ModEntityTypes.TIME_REMNANT.get(), level);
+        remnant.setPos(player.getX(), player.getY(), player.getZ());
+        remnant.setOwner(player);
+        
+        level.addFreshEntity(remnant);
+        
+        PLAYER_REMNANT_IDS.put(player.getUUID(), remnant.getId());
+        
+        syncRemnantState(player);
+    }
+
+    public static void dismissRemnant(ServerPlayer player) {
+        Integer entityId = PLAYER_REMNANT_IDS.remove(player.getUUID());
+        if (entityId != null) {
+            Entity entity = player.level().getEntity(entityId);
+            if (entity instanceof TimeRemnantEntity remnant && remnant.isAlive()) {
+                remnant.discard();
+            }
+        }
+        
+        syncRemnantState(player);
+    }
+
+    public static boolean hasRemnant(UUID playerUUID) {
+        return PLAYER_REMNANT_IDS.containsKey(playerUUID);
+    }
+
+    public static TimeRemnantEntity getRemnant(ServerPlayer player) {
+        Integer entityId = PLAYER_REMNANT_IDS.get(player.getUUID());
+        if (entityId == null) return null;
+        Entity entity = player.level().getEntity(entityId);
+        if (entity instanceof TimeRemnantEntity remnant && remnant.isAlive()) {
+            return remnant;
+        }
+        return null;
+    }
+
+    public static int getRemainingSeconds(ServerPlayer player) {
+        TimeRemnantEntity remnant = getRemnant(player);
+        return remnant != null ? remnant.getRemainingSeconds() : 0;
+    }
+
+    private static void syncRemnantState(ServerPlayer player) {
+        boolean hasRemnant = PLAYER_REMNANT_IDS.containsKey(player.getUUID());
+        int remainingSeconds = hasRemnant ? getRemainingSeconds(player) : 0;
+        PacketDistributor.sendToPlayer(player, new RemnantStatePayload(hasRemnant, remainingSeconds));
+    }
+
+    @SubscribeEvent
+    public static void onServerTick(ServerTickEvent.Post event) {
+        net.minecraft.server.MinecraftServer server = event.getServer();
+        java.util.List<ServerPlayer> needsSync = new java.util.ArrayList<>();
+
+        PLAYER_REMNANT_IDS.entrySet().removeIf(entry -> {
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (player == null) return true;
+            
+            Entity entity = player.level().getEntity(entry.getValue());
+            if (entity == null || !entity.isAlive()) {
+                needsSync.add(player);
+                return true;
+            }
+            return false;
+        });
+
+        for (ServerPlayer player : needsSync) {
+            syncRemnantState(player);
+        }
+    }
+
+    public static void cleanup() {
+        PLAYER_REMNANT_IDS.clear();
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/network/TimeRemnantPayload.java
+// ============================================================================
+package com.example.speedforce.network;
+
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+
+public record TimeRemnantPayload(boolean summon) implements CustomPacketPayload {
+    public static final Type<TimeRemnantPayload> TYPE = 
+        new Type<>(ResourceLocation.fromNamespaceAndPath("speedforce", "time_remnant"));
+    
+    public static final StreamCodec<ByteBuf, TimeRemnantPayload> STREAM_CODEC = StreamCodec.composite(
+        ByteBufCodecs.BOOL, TimeRemnantPayload::summon,
+        TimeRemnantPayload::new
+    );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/network/RemnantStatePayload.java
+// ============================================================================
+package com.example.speedforce.network;
+
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+
+public record RemnantStatePayload(boolean hasRemnant, int remainingSeconds) implements CustomPacketPayload {
+    public static final Type<RemnantStatePayload> TYPE = 
+        new Type<>(ResourceLocation.fromNamespaceAndPath("speedforce", "remnant_state"));
+    
+    public static final StreamCodec<ByteBuf, RemnantStatePayload> STREAM_CODEC = StreamCodec.composite(
+        ByteBufCodecs.BOOL, RemnantStatePayload::hasRemnant,
+        ByteBufCodecs.VAR_INT, RemnantStatePayload::remainingSeconds,
+        RemnantStatePayload::new
+    );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+}
+// ============================================================================
 // src/main/java/com/example/speedforce/client/QuiverHudOverlay.java
 // ============================================================================
 package com.example.speedforce.client;
@@ -1653,6 +2301,15 @@ public class ModEntityTypes {
                 .updateInterval(20)
                 .build(SpeedForceMod.MOD_ID + ":normal_arrow")
         );
+
+    public static final DeferredHolder<EntityType<?>, EntityType<TimeRemnantEntity>> TIME_REMNANT =
+        ENTITY_TYPES.register("time_remnant", () ->
+            EntityType.Builder.<TimeRemnantEntity>of(TimeRemnantEntity::new, MobCategory.CREATURE)
+                .sized(0.6F, 1.8F)
+                .clientTrackingRange(10)
+                .updateInterval(1)
+                .build(SpeedForceMod.MOD_ID + ":time_remnant")
+        );
 }
 package com.example.speedforce.entity;
 
@@ -1682,6 +2339,341 @@ public class NormalArrowEntity extends AbstractArrow {
     @Override
     protected ItemStack getDefaultPickupItem() {
         return new ItemStack(com.example.speedforce.item.ModItems.NORMAL_ARROW.get());
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/entity/TimeRemnantEntity.java
+// ============================================================================
+package com.example.speedforce.entity;
+
+import com.example.speedforce.capability.ModAttachments;
+import com.example.speedforce.capability.SpeedPlayerData;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.*;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.*;
+import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
+import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
+import net.minecraft.world.entity.ai.goal.target.TargetGoal;
+import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.pathfinder.PathType;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Items;
+
+import java.util.*;
+
+public class TimeRemnantEntity extends PathfinderMob {
+
+    private static final EntityDataAccessor<Optional<UUID>> OWNER_UUID = SynchedEntityData.defineId(TimeRemnantEntity.class, EntityDataSerializers.OPTIONAL_UUID);
+    private static final EntityDataAccessor<Integer> SPEED_LEVEL = SynchedEntityData.defineId(TimeRemnantEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Integer> TRAIL_COLOR_R = SynchedEntityData.defineId(TimeRemnantEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Integer> TRAIL_COLOR_G = SynchedEntityData.defineId(TimeRemnantEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Integer> TRAIL_COLOR_B = SynchedEntityData.defineId(TimeRemnantEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Boolean> IS_SPRINTING = SynchedEntityData.defineId(TimeRemnantEntity.class, EntityDataSerializers.BOOLEAN);
+
+    private static final int DEFAULT_DURATION = 2400;
+    private static final ResourceLocation SPEED_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath("speedforce", "remnant_speed");
+    private static final ResourceLocation ATTACK_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath("speedforce", "remnant_attack");
+
+    public int remainingTicks = DEFAULT_DURATION;
+    private LivingEntity ownerLastTarget = null;
+    private List<Vec3> trailHistory = new ArrayList<>();
+    private static final int MAX_TRAIL_HISTORY = 15;
+
+    public TimeRemnantEntity(EntityType<? extends PathfinderMob> type, Level level) {
+        super(type, level);
+        this.setPathfindingMalus(PathType.WATER, 0.0F);
+        ((GroundPathNavigation) this.getNavigation()).setCanOpenDoors(true);
+        this.setMaxUpStep(1.5F);
+    }
+
+    public static AttributeSupplier.Builder createAttributes() {
+        return PathfinderMob.createMobAttributes()
+            .add(Attributes.MOVEMENT_SPEED, 0.3)
+            .add(Attributes.MAX_HEALTH, 20.0)
+            .add(Attributes.ATTACK_DAMAGE, 2.0)
+            .add(Attributes.FOLLOW_RANGE, 32.0)
+            .add(Attributes.ATTACK_SPEED, 4.0);
+    }
+
+    @Override
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(OWNER_UUID, Optional.empty());
+        builder.define(SPEED_LEVEL, 4);
+        builder.define(TRAIL_COLOR_R, 255);
+        builder.define(TRAIL_COLOR_G, 210);
+        builder.define(TRAIL_COLOR_B, 0);
+        builder.define(IS_SPRINTING, false);
+    }
+
+    @Override
+    protected void registerGoals() {
+        this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new MeleeAttackGoal(this, 2.0, true));
+        this.goalSelector.addGoal(2, new FollowOwnerGoal(this, 1.5, 10.0F, 2.0F));
+        this.goalSelector.addGoal(3, new WaterAvoidingRandomStrollGoal(this, 0.5));
+        this.goalSelector.addGoal(4, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(5, new RandomLookAroundGoal(this));
+
+        this.targetSelector.addGoal(1, new HurtByTargetGoal(this));
+        this.targetSelector.addGoal(2, new OwnerHurtTargetGoal(this));
+    }
+
+    public void setOwner(Player owner) {
+        this.entityData.set(OWNER_UUID, Optional.of(owner.getUUID()));
+        this.setCustomName(owner.getName());
+        this.setCustomNameVisible(true);
+        
+        for (EquipmentSlot slot : EquipmentSlot.values()) {
+            this.setItemSlot(slot, owner.getItemBySlot(slot).copy());
+            this.setDropChance(slot, 0.0F);
+        }
+        
+        SpeedPlayerData data = owner.getData(ModAttachments.SPEED_PLAYER);
+        this.entityData.set(SPEED_LEVEL, data.speedLevel);
+        this.entityData.set(TRAIL_COLOR_R, data.trailColorR);
+        this.entityData.set(TRAIL_COLOR_G, data.trailColorG);
+        this.entityData.set(TRAIL_COLOR_B, data.trailColorB);
+        
+        this.getAttribute(Attributes.MAX_HEALTH).setBaseValue(owner.getMaxHealth());
+        this.setHealth(owner.getMaxHealth());
+        
+        applySpeedForceAttributes();
+    }
+
+    public UUID getOwnerUUID() {
+        return this.entityData.get(OWNER_UUID).orElse(null);
+    }
+
+    public Player getOwner() {
+        UUID uuid = getOwnerUUID();
+        if (uuid == null) return null;
+        return this.level().getPlayerByUUID(uuid);
+    }
+
+    public int getSpeedLevel() {
+        return this.entityData.get(SPEED_LEVEL);
+    }
+
+    public int getTrailColorR() {
+        return this.entityData.get(TRAIL_COLOR_R);
+    }
+
+    public int getTrailColorG() {
+        return this.entityData.get(TRAIL_COLOR_G);
+    }
+
+    public int getTrailColorB() {
+        return this.entityData.get(TRAIL_COLOR_B);
+    }
+
+    private void applySpeedForceAttributes() {
+        int speedLevel = getSpeedLevel();
+        if (speedLevel <= 0) return;
+
+        AttributeInstance speedAttr = getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speedAttr != null) {
+            double amount = speedLevel * 0.3;
+            AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_ID, amount, AttributeModifier.Operation.ADD_VALUE);
+            speedAttr.removeModifier(SPEED_MODIFIER_ID);
+            speedAttr.addTransientModifier(modifier);
+        }
+
+        AttributeInstance attackAttr = getAttribute(Attributes.ATTACK_DAMAGE);
+        if (attackAttr != null) {
+            double amount = speedLevel * 0.5;
+            AttributeModifier modifier = new AttributeModifier(ATTACK_MODIFIER_ID, amount, AttributeModifier.Operation.ADD_VALUE);
+            attackAttr.removeModifier(ATTACK_MODIFIER_ID);
+            attackAttr.addTransientModifier(modifier);
+        }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+
+        if (!this.level().isClientSide) {
+            remainingTicks--;
+            if (remainingTicks <= 0) {
+                this.discard();
+                return;
+            }
+
+            boolean isMoving = this.position().distanceToSqr(this.xOld, this.yOld, this.zOld) > 0.001;
+            this.entityData.set(IS_SPRINTING, isMoving);
+        }
+
+        updateTrailHistory();
+    }
+
+    private void updateTrailHistory() {
+        Vec3 currentPos = this.position();
+        trailHistory.add(0, currentPos);
+        if (trailHistory.size() > MAX_TRAIL_HISTORY) {
+            trailHistory.remove(trailHistory.size() - 1);
+        }
+    }
+
+    public List<Vec3> getTrailHistory() {
+        return trailHistory;
+    }
+
+    public boolean shouldRenderTrail() {
+        return this.entityData.get(IS_SPRINTING) && getSpeedLevel() > 0;
+    }
+
+    @Override
+    public void addAdditionalSaveData(CompoundTag tag) {
+        super.addAdditionalSaveData(tag);
+        UUID uuid = getOwnerUUID();
+        if (uuid != null) {
+            tag.putUUID("OwnerUUID", uuid);
+        }
+        tag.putInt("RemainingTicks", remainingTicks);
+        tag.putInt("SpeedLevel", getSpeedLevel());
+        tag.putInt("TrailColorR", getTrailColorR());
+        tag.putInt("TrailColorG", getTrailColorG());
+        tag.putInt("TrailColorB", getTrailColorB());
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        if (tag.hasUUID("OwnerUUID")) {
+            this.entityData.set(OWNER_UUID, Optional.of(tag.getUUID("OwnerUUID")));
+        }
+        remainingTicks = tag.getInt("RemainingTicks");
+        if (tag.contains("SpeedLevel")) {
+            this.entityData.set(SPEED_LEVEL, tag.getInt("SpeedLevel"));
+        }
+        if (tag.contains("TrailColorR")) {
+            this.entityData.set(TRAIL_COLOR_R, tag.getInt("TrailColorR"));
+        }
+        if (tag.contains("TrailColorG")) {
+            this.entityData.set(TRAIL_COLOR_G, tag.getInt("TrailColorG"));
+        }
+        if (tag.contains("TrailColorB")) {
+            this.entityData.set(TRAIL_COLOR_B, tag.getInt("TrailColorB"));
+        }
+        applySpeedForceAttributes();
+    }
+
+    @Override
+    protected InteractionResult mobInteract(Player player, InteractionHand hand) {
+        return InteractionResult.PASS;
+    }
+
+    @Override
+    public boolean canBeLeashed() {
+        return false;
+    }
+
+    @Override
+    public boolean canPickUpLoot() {
+        return false;
+    }
+
+    @Override
+    protected void dropCustomDeathLoot(ServerLevel level, DamageSource source, boolean recentlyHit) {
+    }
+
+    public int getRemainingSeconds() {
+        return remainingTicks / 20;
+    }
+
+    public static class FollowOwnerGoal extends Goal {
+        private final TimeRemnantEntity remnant;
+        private final double speedModifier;
+        private final float stopDistance;
+        private final float startDistance;
+        private Player owner;
+        private int timeToRecalcPath;
+
+        public FollowOwnerGoal(TimeRemnantEntity remnant, double speedModifier, float startDistance, float stopDistance) {
+            this.remnant = remnant;
+            this.speedModifier = speedModifier;
+            this.startDistance = startDistance;
+            this.stopDistance = stopDistance;
+            this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
+        }
+
+        @Override
+        public boolean canUse() {
+            owner = remnant.getOwner();
+            if (owner == null) return false;
+            if (remnant.getTarget() != null) return false;
+            return remnant.distanceToSqr(owner) >= startDistance * startDistance;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            if (owner == null) return false;
+            if (remnant.getTarget() != null) return false;
+            return remnant.distanceToSqr(owner) > stopDistance * stopDistance;
+        }
+
+        @Override
+        public void start() {
+            this.timeToRecalcPath = 0;
+        }
+
+        @Override
+        public void stop() {
+            owner = null;
+            remnant.getNavigation().stop();
+        }
+
+        @Override
+        public void tick() {
+            if (owner != null) {
+                remnant.getLookControl().setLookAt(owner, 10.0F, remnant.getMaxHeadXRot());
+                if (--this.timeToRecalcPath <= 0) {
+                    this.timeToRecalcPath = this.adjustedTickDelay(10);
+                    remnant.getNavigation().moveTo(owner, speedModifier);
+                }
+            }
+        }
+    }
+
+    public static class OwnerHurtTargetGoal extends Goal {
+        private final TimeRemnantEntity remnant;
+        private LivingEntity target;
+
+        public OwnerHurtTargetGoal(TimeRemnantEntity remnant) {
+            this.remnant = remnant;
+        }
+
+        @Override
+        public boolean canUse() {
+            Player owner = remnant.getOwner();
+            if (owner == null) return false;
+            target = owner.getLastHurtMob();
+            if (target == null) return false;
+            if (target instanceof Player && ((Player) target).isCreative()) return false;
+            return remnant.canAttack(target);
+        }
+
+        @Override
+        public void start() {
+            remnant.setTarget(target);
+        }
     }
 }
 package com.example.speedforce.client;
@@ -1755,6 +2747,29 @@ public class ClientKeybinds {
         "category.speedforce.keys"
     );
 
+    public static final KeyMapping REWIND_KEY = new KeyMapping(
+        "key.speedforce.rewind",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_R,
+        "category.speedforce.keys"
+    );
+
+    public static final KeyMapping TIME_REMNANT_KEY = new KeyMapping(
+        "key.speedforce.time_remnant",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_H,
+        "category.speedforce.keys"
+    );
+
+    public static final KeyMapping CYCLE_QUIVER_KEY = new KeyMapping(
+        "key.speedforce.cycle_quiver",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_G,
+        "category.speedforce.keys"
+    );
+
+    private static boolean wasRewinding = false;
+
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
@@ -1789,6 +2804,32 @@ public class ClientKeybinds {
         while (TOGGLE_HELP_KEY.consumeClick()) {
             ClientSpeedData.showHelp = !ClientSpeedData.showHelp;
         }
+
+        while (CYCLE_QUIVER_KEY.consumeClick()) {
+            PacketDistributor.sendToServer(new com.example.speedforce.network.CycleQuiverPayload());
+        }
+
+        while (TIME_REMNANT_KEY.consumeClick()) {
+            if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel >= 4) {
+                PacketDistributor.sendToServer(new com.example.speedforce.network.TimeRemnantPayload(true));
+            }
+        }
+
+        boolean isRewindingNow = REWIND_KEY.isDown() && ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0;
+        if (isRewindingNow != wasRewinding) {
+            PacketDistributor.sendToServer(new com.example.speedforce.network.RewindPayload(isRewindingNow));
+            wasRewinding = isRewindingNow;
+        }
+
+        if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0) {
+            if (isRewindingNow) {
+                ClientSpeedData.clientHistorySize = Math.max(0, ClientSpeedData.clientHistorySize - 1);
+            } else {
+                ClientSpeedData.clientHistorySize = Math.min(200, ClientSpeedData.clientHistorySize + 1);
+            }
+        } else {
+            ClientSpeedData.clientHistorySize = 0;
+        }
     }
 }
 
@@ -1803,6 +2844,9 @@ class ClientModEvents {
         event.register(ClientKeybinds.PHASING_KEY);
         event.register(ClientKeybinds.COLOR_PALETTE_KEY);
         event.register(ClientKeybinds.TOGGLE_HELP_KEY);
+        event.register(ClientKeybinds.REWIND_KEY);
+        event.register(ClientKeybinds.TIME_REMNANT_KEY);
+        event.register(ClientKeybinds.CYCLE_QUIVER_KEY);
     }
 
     @SubscribeEvent
@@ -1815,6 +2859,10 @@ class ClientModEvents {
         event.registerEntityRenderer(
             com.example.speedforce.entity.ModEntityTypes.NORMAL_ARROW.get(), 
             com.example.speedforce.client.renderer.NormalArrowRenderer::new
+        );
+        event.registerEntityRenderer(
+            com.example.speedforce.entity.ModEntityTypes.TIME_REMNANT.get(), 
+            com.example.speedforce.client.renderer.TimeRemnantRenderer::new
         );
     }
 
@@ -2200,6 +3248,27 @@ public class ModEvents {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             ModNetworking.syncToClient(serverPlayer);
         }
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/event/ModBusEvents.java
+// 修复：实体属性注册必须在 MOD 总线上
+// ============================================================================
+package com.example.speedforce.event;
+
+import com.example.speedforce.SpeedForceMod;
+import com.example.speedforce.entity.ModEntityTypes;
+import com.example.speedforce.entity.TimeRemnantEntity;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+
+@EventBusSubscriber(modid = SpeedForceMod.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
+public class ModBusEvents {
+
+    @SubscribeEvent
+    public static void onEntityAttributeCreation(EntityAttributeCreationEvent event) {
+        event.put(ModEntityTypes.TIME_REMNANT.get(), TimeRemnantEntity.createAttributes().build());
     }
 }
 package com.example.speedforce.capability;
@@ -3232,6 +4301,45 @@ public class ModNetworking {
                 }
             });
         });
+
+        registrar.playToServer(RewindPayload.TYPE, RewindPayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                if (context.player() instanceof ServerPlayer player) {
+                    if (payload.isRewinding()) {
+                        com.example.speedforce.event.RewindHandler.IS_REWINDING.put(player.getUUID(), true);
+                    } else {
+                        com.example.speedforce.event.RewindHandler.IS_REWINDING.put(player.getUUID(), false);
+                    }
+                }
+            });
+        });
+
+        registrar.playToClient(RewindStatePayload.TYPE, RewindStatePayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                com.example.speedforce.client.ClientRewindData.phase = payload.phase();
+                com.example.speedforce.client.ClientRewindData.framesRewound = payload.framesRewound();
+                com.example.speedforce.client.ClientRewindData.rewindSpeed = payload.rewindSpeed();
+                com.example.speedforce.client.ClientRewindData.totalHistorySize = payload.totalHistorySize();
+            });
+        });
+
+        registrar.playToServer(TimeRemnantPayload.TYPE, TimeRemnantPayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                if (context.player() instanceof ServerPlayer player) {
+                    if (payload.summon()) {
+                        com.example.speedforce.event.TimeRemnantHandler.summonRemnant(player);
+                    } else {
+                        com.example.speedforce.event.TimeRemnantHandler.dismissRemnant(player);
+                    }
+                }
+            });
+        });
+
+        registrar.playToClient(RemnantStatePayload.TYPE, RemnantStatePayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                com.example.speedforce.client.ClientRemnantData.setRemnantActive(payload.hasRemnant(), payload.remainingSeconds());
+            });
+        });
     }
 
     public static void syncToClient(ServerPlayer player) {
@@ -3414,6 +4522,59 @@ public record SpeedLevelPayload(boolean increase) implements CustomPacketPayload
         ByteBufCodecs.BOOL, SpeedLevelPayload::increase,
         SpeedLevelPayload::new
     );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/network/RewindStatePayload.java
+// ============================================================================
+package com.example.speedforce.network;
+
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+
+public record RewindStatePayload(int phase, int framesRewound, int rewindSpeed, int totalHistorySize) implements CustomPacketPayload {
+    public static final Type<RewindStatePayload> TYPE = 
+        new Type<>(ResourceLocation.fromNamespaceAndPath("speedforce", "rewind_state"));
+    
+    public static final StreamCodec<ByteBuf, RewindStatePayload> STREAM_CODEC = StreamCodec.composite(
+        ByteBufCodecs.VAR_INT, RewindStatePayload::phase,
+        ByteBufCodecs.VAR_INT, RewindStatePayload::framesRewound,
+        ByteBufCodecs.VAR_INT, RewindStatePayload::rewindSpeed,
+        ByteBufCodecs.VAR_INT, RewindStatePayload::totalHistorySize,
+        RewindStatePayload::new
+    );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/network/CycleQuiverPayload.java
+// ============================================================================
+package com.example.speedforce.network;
+
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+
+public record CycleQuiverPayload() implements CustomPacketPayload {
+    public static final Type<CycleQuiverPayload> TYPE = 
+        new Type<>(ResourceLocation.fromNamespaceAndPath("speedforce", "cycle_quiver"));
+    
+    public static final StreamCodec<ByteBuf, CycleQuiverPayload> STREAM_CODEC = 
+        StreamCodec.of(
+            (buf, payload) -> {},
+            buf -> new CycleQuiverPayload()
+        );
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

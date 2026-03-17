@@ -1,10 +1,10 @@
 package com.example.speedforce.client;
 
 import com.example.speedforce.network.BulletTimePayload;
-import com.example.speedforce.network.CancelRewindPayload;
 import com.example.speedforce.network.PhasingPayload;
 import com.example.speedforce.network.RewindPayload;
 import com.example.speedforce.network.SpeedLevelPayload;
+import com.example.speedforce.network.TimeRemnantPayload;
 import com.example.speedforce.network.TogglePowerPayload;
 import com.example.speedforce.particle.ModParticles;
 import com.example.speedforce.client.particle.YellowFlashParticle;
@@ -88,8 +88,14 @@ public class ClientKeybinds {
         "category.speedforce.keys"
     );
 
+    public static final KeyMapping TIME_REMNANT_KEY = new KeyMapping(
+        "key.speedforce.time_remnant",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_H,
+        "category.speedforce.keys"
+    );
+
     private static boolean wasRewinding = false;
-    private static boolean wasLeftAltPressed = false;
 
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
@@ -131,23 +137,16 @@ public class ClientKeybinds {
                 new com.example.speedforce.network.CycleQuiverPayload());
         }
 
+        while (TIME_REMNANT_KEY.consumeClick()) {
+            if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel >= 4) {
+                PacketDistributor.sendToServer(new TimeRemnantPayload(true));
+            }
+        }
+
         boolean isRewindingNow = REWIND_KEY.isDown() && ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0;
         if (isRewindingNow != wasRewinding) {
             PacketDistributor.sendToServer(new RewindPayload(isRewindingNow));
             wasRewinding = isRewindingNow;
-        }
-
-        if (ClientRewindData.isConfirming()) {
-            boolean isLeftAltDown = InputConstants.isKeyDown(
-                mc.getWindow().getWindow(), 
-                GLFW.GLFW_KEY_LEFT_ALT
-            );
-            if (isLeftAltDown && !wasLeftAltPressed) {
-                PacketDistributor.sendToServer(new CancelRewindPayload());
-            }
-            wasLeftAltPressed = isLeftAltDown;
-        } else {
-            wasLeftAltPressed = false;
         }
 
         if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0) {
@@ -175,6 +174,7 @@ class ClientModEvents {
         event.register(ClientKeybinds.TOGGLE_HELP_KEY);
         event.register(ClientKeybinds.CYCLE_QUIVER_KEY);
         event.register(ClientKeybinds.REWIND_KEY);
+        event.register(ClientKeybinds.TIME_REMNANT_KEY);
     }
 
     @SubscribeEvent
@@ -187,6 +187,10 @@ class ClientModEvents {
         event.registerEntityRenderer(
             com.example.speedforce.entity.ModEntityTypes.NORMAL_ARROW.get(), 
             com.example.speedforce.client.renderer.NormalArrowRenderer::new
+        );
+        event.registerEntityRenderer(
+            com.example.speedforce.entity.ModEntityTypes.TIME_REMNANT.get(), 
+            com.example.speedforce.client.renderer.TimeRemnantRenderer::new
         );
     }
 

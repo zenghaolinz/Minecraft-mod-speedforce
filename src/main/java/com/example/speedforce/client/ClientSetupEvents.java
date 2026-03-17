@@ -3,6 +3,8 @@ package com.example.speedforce.client;
 import com.example.speedforce.SpeedForceMod;
 import com.example.speedforce.client.model.QuiverModel;
 import com.example.speedforce.client.render.QuiverLayer;
+import com.example.speedforce.client.renderer.TimeRemnantRenderer;
+import com.example.speedforce.entity.ModEntityTypes;
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
 import net.neoforged.api.distmarker.Dist;
@@ -16,6 +18,11 @@ public class ClientSetupEvents {
     @SubscribeEvent
     public static void registerLayerDefinitions(EntityRenderersEvent.RegisterLayerDefinitions event) {
         event.registerLayerDefinition(QuiverModel.LAYER_LOCATION, QuiverModel::createBodyLayer);
+    }
+
+    @SubscribeEvent
+    public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(ModEntityTypes.TIME_REMNANT.get(), TimeRemnantRenderer::new);
     }
 
     @SubscribeEvent

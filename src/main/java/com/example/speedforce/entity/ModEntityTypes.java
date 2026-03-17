@@ -19,4 +19,13 @@ public class ModEntityTypes {
                 .updateInterval(20)
                 .build(SpeedForceMod.MOD_ID + ":normal_arrow")
         );
+
+    public static final DeferredHolder<EntityType<?>, EntityType<TimeRemnantEntity>> TIME_REMNANT =
+        ENTITY_TYPES.register("time_remnant", () ->
+            EntityType.Builder.<TimeRemnantEntity>of(TimeRemnantEntity::new, MobCategory.CREATURE)
+                .sized(0.6F, 1.8F)
+                .clientTrackingRange(10)
+                .updateInterval(1)
+                .build(SpeedForceMod.MOD_ID + ":time_remnant")
+        );
 }

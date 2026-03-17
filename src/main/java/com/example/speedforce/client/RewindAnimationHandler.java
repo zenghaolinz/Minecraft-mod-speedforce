@@ -3,33 +3,59 @@ package com.example.speedforce.client;
 import com.example.speedforce.SpeedForceMod;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.PlayerModel;
-import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Pose;
+import net.minecraft.world.entity.player.Player;
 import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.RenderPlayerEvent;
+import net.neoforged.neoforge.client.event.RenderLivingEvent;
+
+import java.lang.reflect.Field;
 
 @EventBusSubscriber(modid = SpeedForceMod.MOD_ID, value = Dist.CLIENT)
 public class RewindAnimationHandler {
 
-    @SubscribeEvent(priority = EventPriority.NORMAL)
-    public static void onRenderPlayerPre(RenderPlayerEvent.Pre event) {
-        if (!ClientRewindData.isRewinding()) return;
-        
-        if (!(event.getEntity() instanceof AbstractClientPlayer player)) return;
+    private static Field positionField;
+    private static Field speedField;
+    
+    static {
+        try {
+            positionField = net.minecraft.world.entity.WalkAnimationState.class.getDeclaredField("position");
+            positionField.setAccessible(true);
+            speedField = net.minecraft.world.entity.WalkAnimationState.class.getDeclaredField("speed");
+            speedField.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @SubscribeEvent
+    public static void onRenderLivingPre(RenderLivingEvent.Pre<Player, PlayerModel<Player>> event) {
+        if (!(event.getEntity() instanceof Player player)) return;
         if (player != Minecraft.getInstance().player) return;
+        if (!ClientRewindData.isRewinding()) return;
+
+        float partialTicks = event.getPartialTick();
+        float fakePosition = (player.tickCount + partialTicks) * 0.6f;
         
-        PlayerModel<AbstractClientPlayer> model = event.getRenderer().getModel();
+        try {
+            if (positionField != null && speedField != null) {
+                positionField.setFloat(player.walkAnimation, fakePosition);
+                speedField.setFloat(player.walkAnimation, 1.0f);
+            }
+        } catch (IllegalAccessException ignored) {}
         
-        float gameTime = player.tickCount + Minecraft.getInstance().getTimer().getGameTimeDeltaTicks();
-        float animSpeed = 0.6f;
+        @SuppressWarnings("unchecked")
+        PlayerModel<Player> model = (PlayerModel<Player>) event.getRenderer().getModel();
+        
+        float gameTime = player.tickCount + partialTicks;
+        float animSpeed = 15.0f;
         float legAmplitude = 1.2f;
         float armAmplitude = 0.8f;
         
         float cycle = Mth.sin(gameTime * animSpeed) * legAmplitude;
-        
+
         model.leftLeg.xRot = cycle;
         model.rightLeg.xRot = -cycle;
         

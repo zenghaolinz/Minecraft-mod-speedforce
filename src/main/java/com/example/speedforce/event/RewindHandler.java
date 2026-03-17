@@ -2,7 +2,6 @@ package com.example.speedforce.event;
 
 import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.network.RewindStatePayload;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -19,16 +18,13 @@ public class RewindHandler {
 
     public enum RewindPhase {
         IDLE,
-        REWINDING,
-        CONFIRMING,
-        CANCELLING
+        REWINDING
     }
 
     public static class RewindState {
         public RewindPhase phase = RewindPhase.IDLE;
         public int rewindSpeed = 1;
         public int framesRewound = 0;
-        public long confirmWindowStart = 0;
     }
 
     public static final Map<UUID, Boolean> IS_REWINDING = new HashMap<>();
@@ -37,7 +33,6 @@ public class RewindHandler {
     
     private static final Map<UUID, RewindState> REWIND_STATES = new HashMap<>();
     private static final Map<UUID, TimeAnchor> TIME_ANCHORS = new HashMap<>();
-    private static final int CANCEL_WINDOW_TICKS = 60;
 
     public static RewindState getState(UUID uuid) {
         return REWIND_STATES.computeIfAbsent(uuid, k -> new RewindState());
@@ -46,11 +41,6 @@ public class RewindHandler {
     public static boolean isPlayerRewinding(UUID uuid) {
         RewindState state = REWIND_STATES.get(uuid);
         return state != null && state.phase == RewindPhase.REWINDING;
-    }
-
-    public static boolean isInConfirmWindow(UUID uuid) {
-        RewindState state = REWIND_STATES.get(uuid);
-        return state != null && state.phase == RewindPhase.CONFIRMING;
     }
 
     public static int getFramesRewound(UUID uuid) {
@@ -74,44 +64,16 @@ public class RewindHandler {
 
         IS_REWINDING.put(uuid, true);
         REWIND_HISTORY_SIZE.put(uuid, anchor.getBlockHistorySize());
+        
+        syncRewindStateToClient(player);
     }
 
     public static void stopRewind(ServerPlayer player) {
-        UUID uuid = player.getUUID();
-        RewindState state = REWIND_STATES.get(uuid);
-        
-        if (state == null || state.phase != RewindPhase.REWINDING) return;
-
-        state.phase = RewindPhase.CONFIRMING;
-        state.confirmWindowStart = player.level().getGameTime();
-        
-        IS_REWINDING.put(uuid, false);
+        confirmRewind(player);
     }
 
     public static void confirmRewind(ServerPlayer player) {
         UUID uuid = player.getUUID();
-        
-        TIME_ANCHORS.remove(uuid);
-        REWIND_STATES.remove(uuid);
-        REWIND_HISTORY_SIZE.remove(uuid);
-        
-        IS_REWINDING.put(uuid, false);
-        
-        PacketDistributor.sendToPlayer(player, new RewindStatePayload(0, 0, 1, 0, 0));
-    }
-
-    public static void cancelRewind(ServerPlayer player) {
-        UUID uuid = player.getUUID();
-        TimeAnchor anchor = TIME_ANCHORS.get(uuid);
-        
-        if (anchor != null) {
-            ServerLevel level = player.serverLevel();
-            
-            BlockRewindManager.truncateHistory(level, anchor.getBlockHistorySize());
-            WorldRewindHandler.truncateHistory(level, anchor.getEntityHistorySize());
-            
-            anchor.restorePlayer(player);
-        }
         
         TIME_ANCHORS.remove(uuid);
         REWIND_STATES.remove(uuid);
@@ -134,14 +96,6 @@ public class RewindHandler {
         return state != null ? state.rewindSpeed : 1;
     }
 
-    public static int getRemainingConfirmTime(UUID uuid, long currentGameTime) {
-        RewindState state = REWIND_STATES.get(uuid);
-        if (state == null || state.phase != RewindPhase.CONFIRMING) return 0;
-        
-        long elapsed = currentGameTime - state.confirmWindowStart;
-        return Math.max(0, CANCEL_WINDOW_TICKS - (int) elapsed);
-    }
-
     @SubscribeEvent
     public static void onPlayerTick(PlayerTickEvent.Post event) {
         Player player = event.getEntity();
@@ -162,10 +116,8 @@ public class RewindHandler {
         RewindState state = REWIND_STATES.get(uuid);
         if (state == null) return;
 
-        switch (state.phase) {
-            case REWINDING -> handleRewinding((ServerPlayer) player, state);
-            case CONFIRMING -> handleConfirming((ServerPlayer) player, state);
-            default -> {}
+        if (state.phase == RewindPhase.REWINDING) {
+            handleRewinding((ServerPlayer) player, state);
         }
     }
 
@@ -182,31 +134,19 @@ public class RewindHandler {
         syncRewindStateToClient(player);
     }
 
-    private static void handleConfirming(ServerPlayer player, RewindState state) {
-        long currentTime = player.level().getGameTime();
-        long elapsed = currentTime - state.confirmWindowStart;
-        
-        syncRewindStateToClient(player);
-        
-        if (elapsed >= CANCEL_WINDOW_TICKS) {
-            confirmRewind(player);
-        }
-    }
-
     private static void syncRewindStateToClient(ServerPlayer player) {
         UUID uuid = player.getUUID();
         RewindState state = REWIND_STATES.get(uuid);
         if (state == null) return;
 
         int phaseOrdinal = state.phase.ordinal();
-        int confirmTime = getRemainingConfirmTime(uuid, player.level().getGameTime());
         int totalHistory = REWIND_HISTORY_SIZE.getOrDefault(uuid, 0);
 
         PacketDistributor.sendToPlayer(player, new RewindStatePayload(
             phaseOrdinal,
             state.framesRewound,
             state.rewindSpeed,
-            confirmTime,
+            0,
             totalHistory
         ));
     }

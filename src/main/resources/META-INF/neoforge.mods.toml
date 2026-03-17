@@ -5,7 +5,7 @@ issueTrackerURL = "https://github.com/example/speedforce/issues"
 
 [[mods]]
 modId = "speedforce"
-version = "1.0.7v2"
+version = "1.0.7v7"
 displayName = "Speed Force"
 authors = "曾浩林"
 logoFile = "logo.png"

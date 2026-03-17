@@ -42,25 +42,26 @@ public class SpeedHudRenderer {
         int maxLevel = hasFullSuit ? 14 : 10;
 
         if (ClientSpeedData.showHelp) {
-            graphics.fill(8, 8, 140, 108, 0x80000000);
+            graphics.fill(8, 8, 140, 120, 0x80000000);
             graphics.drawString(mc.font, "C - 开关超能力", 12, 12, 0xFFFFFF);
             graphics.drawString(mc.font, "X - 加速 / Z - 减速", 12, 24, 0xFFFFFF);
             graphics.drawString(mc.font, "B - 子弹时间", 12, 36, 0xFFFFFF);
             graphics.drawString(mc.font, "N - 拖尾颜色", 12, 48, 0xFFFFFF);
             graphics.drawString(mc.font, "R - 时间回溯", 12, 60, 0xFFFFFF);
             graphics.drawString(mc.font, "G - 切换箭袋箭矢", 12, 72, 0xFFFFFF);
-            graphics.drawString(mc.font, "U - 收起帮助", 12, 84, 0xAAAAAA);
+            graphics.drawString(mc.font, "H - 时间残影(速度4+)", 12, 84, 0xFFFFFF);
+            graphics.drawString(mc.font, "U - 收起帮助", 12, 96, 0xAAAAAA);
             
             String statusText = ClientSpeedData.speedLevel > 0 ? 
                 "状态: Lv." + ClientSpeedData.speedLevel + "/" + maxLevel : "状态: 未启用";
             int statusColor = ClientSpeedData.speedLevel > 0 ? 0x55FF55 : 0xFF5555;
-            graphics.drawString(mc.font, statusText, 12, 96, statusColor);
+            graphics.drawString(mc.font, statusText, 12, 108, statusColor);
 
             int colorBoxX = 115;
-            graphics.fill(colorBoxX, 84, colorBoxX + 20, 104, 0xFF000000);
+            graphics.fill(colorBoxX, 96, colorBoxX + 20, 116, 0xFF000000);
             int trailColor = (0xFF << 24) | (ClientSpeedData.trailColorR << 16) | 
                              (ClientSpeedData.trailColorG << 8) | ClientSpeedData.trailColorB;
-            graphics.fill(colorBoxX + 1, 85, colorBoxX + 19, 103, trailColor);
+            graphics.fill(colorBoxX + 1, 97, colorBoxX + 19, 115, trailColor);
         } else {
             graphics.fill(8, 8, 100, 24, 0x80000000);
             graphics.drawString(mc.font, "[U] 帮助", 12, 12, 0xAAAAAA);
@@ -68,6 +69,10 @@ public class SpeedHudRenderer {
             String statusText = "Lv." + ClientSpeedData.speedLevel + "/" + maxLevel;
             int statusColor = ClientSpeedData.speedLevel > 0 ? 0x55FF55 : 0xFF5555;
             graphics.drawString(mc.font, statusText, 60, 12, statusColor);
+            
+            if (ClientRemnantData.hasRemnant) {
+                graphics.drawString(mc.font, "§e残影: " + ClientRemnantData.remainingSeconds + "s", 12, 24, 0xFFFFFF00);
+            }
         }
 
         int rightX = screenWidth - 70;
@@ -115,24 +120,21 @@ public class SpeedHudRenderer {
 
             graphics.fill(rewindBarX, rewindBarY, rewindBarX + rewindBarWidth, rewindBarY + 4, 0xFF444444);
             
-            float rewindRatio = ClientRewindData.getRewindProgress();
-            int rewindFillWidth = (int) (rewindBarWidth * rewindRatio);
+            float maxRewindSeconds = 10.0f;
+            float currentSeconds = ClientSpeedData.clientHistorySize / 20.0f;
+            float fillRatio = Math.min(1.0f, currentSeconds / maxRewindSeconds);
+            int rewindFillWidth = (int)(rewindBarWidth * fillRatio);
             
             if (rewindFillWidth > 0) {
-                graphics.fill(rewindBarX, rewindBarY, rewindBarX + rewindFillWidth, rewindBarY + 4, 0xFF9933FF);
+                graphics.fill(rewindBarX, rewindBarY, rewindBarX + rewindFillWidth, rewindBarY + 4, 0xFFFFFF00);
             }
             
+            String rewindText = String.format("可回溯: %.1f s", currentSeconds);
+            graphics.drawString(mc.font, rewindText, rewindBarX + rewindBarWidth + 6, rewindBarY - 2, 0xFFFFFF00);
+            
             if (ClientRewindData.isRewinding()) {
-                graphics.drawCenteredString(mc.font, "§d时间回溯中... §7速度: " + ClientRewindData.rewindSpeed + "x", 
+                graphics.drawCenteredString(mc.font, "§e时间回溯中... §7速度: " + ClientRewindData.rewindSpeed + "x", 
                     screenWidth / 2, rewindBarY - 14, 0xFFFFFFFF);
-            } else if (ClientRewindData.isConfirming()) {
-                float timeLeft = ClientRewindData.getConfirmTimeSeconds();
-                graphics.drawCenteredString(mc.font, 
-                    String.format("§e按 LEFT ALT 取消回溯 §7(%.1fs)", timeLeft), 
-                    screenWidth / 2, rewindBarY - 14, 0xFFFFFFFF);
-            } else {
-                String rewindText = String.format("%.1f s", ClientSpeedData.clientHistorySize / 20.0f);
-                graphics.drawString(mc.font, rewindText, rewindBarX + rewindBarWidth + 6, rewindBarY - 2, 0xFF9933FF);
             }
         }
     }

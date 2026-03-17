@@ -147,21 +147,30 @@ public class ModNetworking {
             });
         });
 
-        registrar.playToServer(CancelRewindPayload.TYPE, CancelRewindPayload.STREAM_CODEC, (payload, context) -> {
-            context.enqueueWork(() -> {
-                if (context.player() instanceof ServerPlayer player) {
-                    com.example.speedforce.event.RewindHandler.cancelRewind(player);
-                }
-            });
-        });
-
         registrar.playToClient(RewindStatePayload.TYPE, RewindStatePayload.STREAM_CODEC, (payload, context) -> {
             context.enqueueWork(() -> {
                 com.example.speedforce.client.ClientRewindData.phase = payload.phase();
                 com.example.speedforce.client.ClientRewindData.framesRewound = payload.framesRewound();
                 com.example.speedforce.client.ClientRewindData.rewindSpeed = payload.rewindSpeed();
-                com.example.speedforce.client.ClientRewindData.confirmTimeRemaining = payload.confirmTimeRemaining();
                 com.example.speedforce.client.ClientRewindData.totalHistorySize = payload.totalHistorySize();
+            });
+        });
+
+        registrar.playToServer(TimeRemnantPayload.TYPE, TimeRemnantPayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                if (context.player() instanceof ServerPlayer player) {
+                    if (payload.summon()) {
+                        com.example.speedforce.event.TimeRemnantHandler.summonRemnant(player);
+                    } else {
+                        com.example.speedforce.event.TimeRemnantHandler.dismissRemnant(player);
+                    }
+                }
+            });
+        });
+
+        registrar.playToClient(RemnantStatePayload.TYPE, RemnantStatePayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                com.example.speedforce.client.ClientRemnantData.setRemnantActive(payload.hasRemnant(), payload.remainingSeconds());
             });
         });
     }
