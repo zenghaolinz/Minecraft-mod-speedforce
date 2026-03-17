@@ -19,3 +19,6 @@ Thumbs.db
 
 # Local config
 local.properties
+
+# Development files
+SPEEDFORCE_MOD_ALL_CODE.java
