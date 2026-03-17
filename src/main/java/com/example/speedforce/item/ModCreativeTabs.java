@@ -55,6 +55,7 @@ public class ModCreativeTabs {
                 output.accept(ModItems.GREEN_ARROW_BOOTS.get());
                 output.accept(ModItems.GREEN_ARROW_BOW.get());
                 output.accept(ModItems.NORMAL_ARROW.get());
+                output.accept(ModItems.QUIVER.get());
                 
                 output.accept(ModItems.PARTICLE_ACCELERATOR.get());
                 output.accept(ModItems.SPEED_FORCE_WORKBENCH.get());

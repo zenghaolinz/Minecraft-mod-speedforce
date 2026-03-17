@@ -476,6 +476,1140 @@ public class GreenArrowBowItem extends BowItem {
         return f;
     }
 }
+// ============================================================================
+// src/main/java/com/example/speedforce/event/WorldRewindHandler.java (UPDATED v1.0.6v7)
+// Added: TNT tracking, projectile rewind, arrow extraction via reflection
+// ============================================================================
+package com.example.speedforce.event;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.item.PrimedTnt;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
+import net.neoforged.neoforge.event.level.BlockEvent;
+import net.neoforged.neoforge.event.level.ExplosionEvent;
+import net.neoforged.neoforge.event.tick.LevelTickEvent;
+
+import java.lang.reflect.Field;
+import java.util.*;
+
+@EventBusSubscriber(modid = "speedforce")
+public class WorldRewindHandler {
+    
+    private static final Field ARROW_IN_GROUND_FIELD;
+    static {
+        try {
+            ARROW_IN_GROUND_FIELD = AbstractArrow.class.getDeclaredField("inGround");
+            ARROW_IN_GROUND_FIELD.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException("Failed to access AbstractArrow.inGround field", e);
+        }
+    }
+    
+    public record BlockSnapshot(BlockPos pos, BlockState state) {}
+    public record DeadEntitySnapshot(EntityType<?> type, CompoundTag nbt, Vec3 pos, UUID uuid) {}
+    public record EntitySnapshot(UUID uuid, Vec3 pos, float yRot, float xRot, Vec3 delta, int fuse, float health) {}
+    
+    public record TickSnapshot(List<BlockSnapshot> blocks, List<DeadEntitySnapshot> deadEntities, List<EntitySnapshot> livingEntities) {}
+
+    private static final Map<ServerLevel, Deque<TickSnapshot>> HISTORY = new HashMap<>();
+    private static final Map<ServerLevel, List<BlockSnapshot>> PENDING_BLOCKS = new HashMap<>();
+    private static final Map<ServerLevel, List<DeadEntitySnapshot>> PENDING_DEAD_ENTITIES = new HashMap<>();
+
+    private static boolean isLevelRewinding(ServerLevel level) {
+        for (Player p : level.players()) {
+            if (RewindHandler.IS_REWINDING.getOrDefault(p.getUUID(), false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @SubscribeEvent
+    public static void onExplosionDetonate(ExplosionEvent.Detonate event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            if (isLevelRewinding(level)) return;
+            List<BlockSnapshot> blocks = PENDING_BLOCKS.computeIfAbsent(level, k -> new ArrayList<>());
+            for (BlockPos pos : event.getAffectedBlocks()) {
+                blocks.add(new BlockSnapshot(pos.immutable(), level.getBlockState(pos)));
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onEntityJoin(EntityJoinLevelEvent event) {
+        if (event.getEntity() instanceof PrimedTnt tnt && event.getLevel() instanceof ServerLevel level) {
+            if (isLevelRewinding(level)) return;
+            List<BlockSnapshot> blocks = PENDING_BLOCKS.computeIfAbsent(level, k -> new ArrayList<>());
+            blocks.add(new BlockSnapshot(tnt.blockPosition(), Blocks.TNT.defaultBlockState()));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onBlockBreak(BlockEvent.BreakEvent event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            if (isLevelRewinding(level)) return;
+            List<BlockSnapshot> blocks = PENDING_BLOCKS.computeIfAbsent(level, k -> new ArrayList<>());
+            blocks.add(new BlockSnapshot(event.getPos().immutable(), event.getState()));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            if (isLevelRewinding(level)) return;
+            List<BlockSnapshot> blocks = PENDING_BLOCKS.computeIfAbsent(level, k -> new ArrayList<>());
+            BlockState replacedState = level.getBlockState(event.getPos());
+            blocks.add(new BlockSnapshot(event.getPos().immutable(), replacedState));
+        }
+    }
+
+    @SubscribeEvent
+    public static void onEntityLeave(EntityLeaveLevelEvent event) {
+        Entity entity = event.getEntity();
+        if (entity.level() instanceof ServerLevel level && !(entity instanceof Player)) {
+            if (isLevelRewinding(level)) return;
+            
+            if (entity instanceof LivingEntity || entity instanceof PrimedTnt || entity instanceof ItemEntity || entity instanceof Projectile) {
+                List<DeadEntitySnapshot> deadEntities = PENDING_DEAD_ENTITIES.computeIfAbsent(level, k -> new ArrayList<>());
+                CompoundTag tag = new CompoundTag();
+                entity.saveWithoutId(tag);
+                deadEntities.add(new DeadEntitySnapshot(entity.getType(), tag, entity.position(), entity.getUUID()));
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLevelTick(LevelTickEvent.Post event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            boolean rewinding = isLevelRewinding(level);
+            Deque<TickSnapshot> history = HISTORY.computeIfAbsent(level, k -> new ArrayDeque<>());
+            
+            if (rewinding) {
+                if (!history.isEmpty()) {
+                    TickSnapshot snapshot = history.pollFirst();
+                    
+                    for (BlockSnapshot bs : snapshot.blocks()) {
+                        level.setBlock(bs.pos(), bs.state(), 3);
+                    }
+                    
+                    for (DeadEntitySnapshot des : snapshot.deadEntities()) {
+                        if (level.getEntity(des.uuid()) == null) { 
+                            Entity entity = des.type().create(level);
+                            if (entity != null) {
+                                entity.load(des.nbt());
+                                entity.setUUID(des.uuid());
+                                if (entity instanceof PrimedTnt tnt && tnt.getFuse() <= 0) {
+                                    tnt.setFuse(1);
+                                }
+                                level.addFreshEntity(entity);
+                            }
+                        }
+                    }
+                    
+                    Set<UUID> validUUIDs = new HashSet<>();
+                    for (DeadEntitySnapshot des : snapshot.deadEntities()) {
+                        validUUIDs.add(des.uuid());
+                    }
+                    
+                    for (EntitySnapshot es : snapshot.livingEntities()) {
+                        validUUIDs.add(es.uuid());
+                        Entity entity = level.getEntity(es.uuid());
+                        if (entity != null) {
+                            entity.teleportTo(es.pos().x, es.pos().y, es.pos().z);
+                            entity.setYRot(es.yRot());
+                            entity.setXRot(es.xRot());
+                            entity.setDeltaMovement(es.delta());
+                            entity.fallDistance = 0;
+                            
+                            if (entity instanceof PrimedTnt tnt) {
+                                tnt.setFuse(Math.max(1, es.fuse()));
+                            } else if (entity instanceof LivingEntity le) {
+                                le.setHealth(es.health());
+                            } else if (entity instanceof AbstractArrow arrow) {
+                                try {
+                                    ARROW_IN_GROUND_FIELD.setBoolean(arrow, false);
+                                } catch (IllegalAccessException ignored) {}
+                            }
+                        }
+                    }
+                    
+                    for (Entity entity : level.getAllEntities()) {
+                        if (entity != null && !(entity instanceof Player)) {
+                            if (entity instanceof LivingEntity || entity instanceof PrimedTnt || entity instanceof ItemEntity || entity instanceof Projectile) {
+                                if (!validUUIDs.contains(entity.getUUID())) {
+                                    entity.discard();
+                                }
+                            }
+                        }
+                    }
+                }
+                PENDING_BLOCKS.remove(level);
+                PENDING_DEAD_ENTITIES.remove(level);
+            } else {
+                List<BlockSnapshot> currentBlocks = new ArrayList<>(PENDING_BLOCKS.getOrDefault(level, Collections.emptyList()));
+                List<DeadEntitySnapshot> currentDead = new ArrayList<>(PENDING_DEAD_ENTITIES.getOrDefault(level, Collections.emptyList()));
+                List<EntitySnapshot> currentLiving = new ArrayList<>();
+                
+                for (Entity entity : level.getAllEntities()) {
+                    if (entity != null && !(entity instanceof Player)) {
+                        if (entity instanceof LivingEntity || entity instanceof PrimedTnt || entity instanceof ItemEntity || entity instanceof Projectile) {
+                            int fuse = entity instanceof PrimedTnt tnt ? tnt.getFuse() : 0;
+                            float health = entity instanceof LivingEntity le ? le.getHealth() : 0;
+                            currentLiving.add(new EntitySnapshot(entity.getUUID(), entity.position(), entity.getYRot(), entity.getXRot(), entity.getDeltaMovement(), fuse, health));
+                        }
+                    }
+                }
+                
+                history.addFirst(new TickSnapshot(currentBlocks, currentDead, currentLiving));
+                if (history.size() > 200) {
+                    history.removeLast();
+                }
+                
+                PENDING_BLOCKS.remove(level);
+                PENDING_DEAD_ENTITIES.remove(level);
+            }
+        }
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/event/RewindHandler.java (UPDATED v1.0.6v5)
+// Simplified to only manage IS_REWINDING state and lock player position
+// ============================================================================
+package com.example.speedforce.event;
+
+import com.example.speedforce.capability.ModAttachments;
+import net.minecraft.world.entity.player.Player;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+@EventBusSubscriber(modid = "speedforce")
+public class RewindHandler {
+    public static final Map<UUID, Boolean> IS_REWINDING = new HashMap<>();
+    public static final Map<UUID, Double[]> REWIND_START_POS = new HashMap<>();
+    public static final Map<UUID, Integer> REWIND_HISTORY_SIZE = new HashMap<>();
+
+    @SubscribeEvent
+    public static void onPlayerTick(PlayerTickEvent.Post event) {
+        Player player = event.getEntity();
+        if (player.level().isClientSide) return;
+
+        UUID uuid = player.getUUID();
+        var data = player.getData(ModAttachments.SPEED_PLAYER);
+
+        if (!data.hasPower || data.speedLevel <= 0) {
+            IS_REWINDING.put(uuid, false);
+            REWIND_START_POS.remove(uuid);
+            REWIND_HISTORY_SIZE.remove(uuid);
+            return;
+        }
+
+        boolean rewinding = IS_REWINDING.getOrDefault(uuid, false);
+        
+        if (rewinding) {
+            player.setDeltaMovement(0, 0, 0);
+            player.fallDistance = 0;
+        }
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/capability/RewindState.java (NEW v1.0.6v3)
+// ============================================================================
+package com.example.speedforce.capability;
+
+import net.minecraft.world.phys.Vec3;
+
+public record RewindState(Vec3 pos, float yRot, float xRot, float health) {}
+// ============================================================================
+// src/main/java/com/example/speedforce/network/RewindPayload.java (NEW v1.0.6v3)
+// ============================================================================
+package com.example.speedforce.network;
+
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+
+public record RewindPayload(boolean isRewinding) implements CustomPacketPayload {
+    public static final Type<RewindPayload> TYPE = 
+        new Type<>(ResourceLocation.fromNamespaceAndPath("speedforce", "rewind_payload"));
+    
+    public static final StreamCodec<ByteBuf, RewindPayload> STREAM_CODEC = StreamCodec.composite(
+        ByteBufCodecs.BOOL, RewindPayload::isRewinding,
+        RewindPayload::new
+    );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/event/RewindHandler.java (NEW v1.0.6v3)
+// ============================================================================
+package com.example.speedforce.event;
+
+import com.example.speedforce.capability.ModAttachments;
+import com.example.speedforce.capability.RewindState;
+import net.minecraft.world.entity.player.Player;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+@EventBusSubscriber(modid = "speedforce")
+public class RewindHandler {
+    public static final Map<UUID, Deque<RewindState>> HISTORY = new HashMap<>();
+    public static final Map<UUID, Boolean> IS_REWINDING = new HashMap<>();
+    public static final int MAX_HISTORY = 200;
+
+    @SubscribeEvent
+    public static void onPlayerTick(PlayerTickEvent.Post event) {
+        Player player = event.getEntity();
+        if (player.level().isClientSide) return;
+
+        UUID uuid = player.getUUID();
+        var data = player.getData(ModAttachments.SPEED_PLAYER);
+
+        if (!data.hasPower || data.speedLevel <= 0) {
+            HISTORY.remove(uuid);
+            IS_REWINDING.put(uuid, false);
+            return;
+        }
+
+        boolean rewinding = IS_REWINDING.getOrDefault(uuid, false);
+        Deque<RewindState> history = HISTORY.computeIfAbsent(uuid, k -> new ArrayDeque<>());
+
+        if (rewinding) {
+            if (!history.isEmpty()) {
+                RewindState state = history.pollFirst();
+                player.teleportTo(state.pos().x, state.pos().y, state.pos().z);
+                player.setYRot(state.yRot());
+                player.setXRot(state.xRot());
+                player.setHealth(state.health());
+                player.setDeltaMovement(0, 0, 0);
+                player.fallDistance = 0;
+            } else {
+                IS_REWINDING.put(uuid, false);
+            }
+        } else {
+            history.addFirst(new RewindState(player.position(), player.getYRot(), player.getXRot(), player.getHealth()));
+            if (history.size() > MAX_HISTORY) {
+                history.removeLast();
+            }
+        }
+    }
+}
+// ============================================================================
+// Updated ModNetworking.java - Added RewindPayload registration (v1.0.6v3)
+// ============================================================================
+// Add to registerPayloads method:
+//         registrar.playToServer(RewindPayload.TYPE, RewindPayload.STREAM_CODEC, (payload, context) -> {
+//             context.enqueueWork(() -> {
+//                 if (context.player() instanceof ServerPlayer player) {
+//                     com.example.speedforce.event.RewindHandler.IS_REWINDING.put(player.getUUID(), payload.isRewinding());
+//                 }
+//             });
+//         });
+// ============================================================================
+// Updated ClientSpeedData.java - Added clientHistorySize (v1.0.6v3)
+// ============================================================================
+// Add: public static int clientHistorySize = 0;
+// ============================================================================
+// Updated ClientKeybinds.java - Added R key for Time Rewind (v1.0.6v3)
+// ============================================================================
+// Add: public static final KeyMapping REWIND_KEY = new KeyMapping("key.speedforce.rewind", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_R, "category.speedforce.keys");
+// Add: private static boolean wasRewinding = false;
+// Add in onClientTick:
+//         boolean isRewindingNow = REWIND_KEY.isDown() && mc.player.isSprinting() && ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0;
+//         if (isRewindingNow != wasRewinding) {
+//             PacketDistributor.sendToServer(new RewindPayload(isRewindingNow));
+//             wasRewinding = isRewindingNow;
+//         }
+//         if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0) {
+//             if (!isRewindingNow) {
+//                 ClientSpeedData.clientHistorySize = Math.min(200, ClientSpeedData.clientHistorySize + 1);
+//             } else {
+//                 ClientSpeedData.clientHistorySize = Math.max(0, ClientSpeedData.clientHistorySize - 1);
+//             }
+//         } else {
+//             ClientSpeedData.clientHistorySize = 0;
+//         }
+// ============================================================================
+// Updated SpeedHudRenderer.java - Added Rewind progress bar (v1.0.6v3)
+// ============================================================================
+// Add at end of onRenderGui method:
+//         if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0) {
+//             int rewindBarWidth = 120;
+//             int rewindBarX = screenWidth / 2 - rewindBarWidth / 2;
+//             int rewindBarY = mc.getWindow().getGuiScaledHeight() - 40;
+//
+//             graphics.fill(rewindBarX, rewindBarY, rewindBarX + rewindBarWidth, rewindBarY + 4, 0xFF444444);
+//             
+//             float rewindRatio = (float) ClientSpeedData.clientHistorySize / 200.0f;
+//             int rewindFillWidth = (int) (rewindBarWidth * rewindRatio);
+//             
+//             if (rewindFillWidth > 0) {
+//                 graphics.fill(rewindBarX, rewindBarY, rewindBarX + rewindFillWidth, rewindBarY + 4, 0xFF00FFFF);
+//             }
+//             
+//             String rewindText = String.format("%.1f s", ClientSpeedData.clientHistorySize / 20.0f);
+//             graphics.drawString(mc.font, rewindText, rewindBarX + rewindBarWidth + 6, rewindBarY - 2, 0xFF00FFFF);
+//             
+//             if (ClientKeybinds.REWIND_KEY.isDown() && player.isSprinting()) {
+//                 graphics.drawCenteredString(mc.font, "时间回溯中...", screenWidth / 2, rewindBarY - 12, 0xFF00FFFF);
+//             }
+//         }
+// ============================================================================
+// src/main/java/com/example/speedforce/menu/ModMenuTypes.java
+// ============================================================================
+package com.example.speedforce.menu;
+
+import com.example.speedforce.SpeedForceMod;
+import com.example.speedforce.inventory.QuiverMenu;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.inventory.MenuType;
+import net.neoforged.neoforge.registries.DeferredRegister;
+
+import java.util.function.Supplier;
+
+public class ModMenuTypes {
+    public static final DeferredRegister<MenuType<?>> MENUS = 
+        DeferredRegister.create(Registries.MENU, SpeedForceMod.MOD_ID);
+
+    public static final Supplier<MenuType<SpeedForceWorkbenchMenu>> SPEED_FORCE_WORKBENCH = 
+        MENUS.register("speed_force_workbench", () -> SpeedForceWorkbenchMenu.TYPE);
+
+    public static final Supplier<MenuType<QuiverMenu>> QUIVER = 
+        MENUS.register("quiver", () -> QuiverMenu.TYPE);
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/item/QuiverItem.java
+// ============================================================================
+package com.example.speedforce.item;
+
+import com.example.speedforce.inventory.QuiverMenu;
+import net.minecraft.core.NonNullList;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
+
+import java.util.Optional;
+
+public class QuiverItem extends Item {
+
+    public static final int SLOT_COUNT = 5;
+
+    public QuiverItem(Properties properties) {
+        super(properties.stacksTo(1));
+    }
+
+    @Override
+    public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+        ItemStack stack = player.getItemInHand(hand);
+        if (!level.isClientSide && player instanceof ServerPlayer serverPlayer) {
+            player.openMenu(new net.minecraft.world.SimpleMenuProvider(
+                (containerId, playerInventory, playerIn) -> new QuiverMenu(containerId, playerInventory, stack),
+                Component.translatable("item.speedforce.quiver")
+            ));
+        }
+        return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
+    }
+
+    private static CompoundTag getCustomData(ItemStack stack) {
+        var customData = stack.get(net.minecraft.core.component.DataComponents.CUSTOM_DATA);
+        return customData != null ? customData.copyTag() : new CompoundTag();
+    }
+
+    private static void setCustomData(ItemStack stack, CompoundTag tag) {
+        stack.set(net.minecraft.core.component.DataComponents.CUSTOM_DATA, 
+            net.minecraft.world.item.component.CustomData.of(tag));
+    }
+
+    public static NonNullList<ItemStack> getInventory(ItemStack stack) {
+        NonNullList<ItemStack> items = NonNullList.withSize(SLOT_COUNT, ItemStack.EMPTY);
+        CompoundTag tag = getCustomData(stack);
+        if (tag.contains("Items", Tag.TAG_LIST)) {
+            ListTag listTag = tag.getList("Items", Tag.TAG_COMPOUND);
+            for (int i = 0; i < listTag.size(); i++) {
+                CompoundTag itemTag = listTag.getCompound(i);
+                int slot = itemTag.getByte("Slot") & 255;
+                if (slot < SLOT_COUNT) {
+                    items.set(slot, loadItemStack(itemTag));
+                }
+            }
+        }
+        return items;
+    }
+
+    public static void saveInventory(ItemStack stack, NonNullList<ItemStack> items) {
+        CompoundTag tag = getCustomData(stack);
+        ListTag listTag = new ListTag();
+        for (int i = 0; i < items.size(); i++) {
+            ItemStack itemStack = items.get(i);
+            if (!itemStack.isEmpty()) {
+                CompoundTag itemTag = saveItemStack(itemStack);
+                itemTag.putByte("Slot", (byte) i);
+                listTag.add(itemTag);
+            }
+        }
+        tag.put("Items", listTag);
+        setCustomData(stack, tag);
+    }
+
+    private static ItemStack loadItemStack(CompoundTag tag) {
+        if (!tag.contains("id", Tag.TAG_STRING)) return ItemStack.EMPTY;
+        ResourceLocation id = ResourceLocation.tryParse(tag.getString("id"));
+        if (id == null) return ItemStack.EMPTY;
+        Optional<Item> item = BuiltInRegistries.ITEM.getOptional(id);
+        if (item.isEmpty()) return ItemStack.EMPTY;
+        int count = tag.contains("Count", Tag.TAG_INT) ? tag.getInt("Count") : 1;
+        return new ItemStack(item.get(), count);
+    }
+
+    private static CompoundTag saveItemStack(ItemStack stack) {
+        CompoundTag tag = new CompoundTag();
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        tag.putString("id", id.toString());
+        tag.putInt("Count", stack.getCount());
+        return tag;
+    }
+
+    public static int getSelectedSlot(ItemStack stack) {
+        CompoundTag tag = getCustomData(stack);
+        return tag.contains("SelectedSlot") ? tag.getInt("SelectedSlot") : 0;
+    }
+
+    public static void setSelectedSlot(ItemStack stack, int slot) {
+        CompoundTag tag = getCustomData(stack);
+        tag.putInt("SelectedSlot", Math.max(0, Math.min(slot, SLOT_COUNT - 1)));
+        setCustomData(stack, tag);
+    }
+
+    public static ItemStack getSelectedArrow(ItemStack quiverStack) {
+        NonNullList<ItemStack> items = getInventory(quiverStack);
+        int selectedSlot = getSelectedSlot(quiverStack);
+        return items.get(selectedSlot);
+    }
+
+    public static boolean consumeArrow(ItemStack quiverStack, int amount) {
+        NonNullList<ItemStack> items = getInventory(quiverStack);
+        int selectedSlot = getSelectedSlot(quiverStack);
+        ItemStack arrowStack = items.get(selectedSlot);
+        
+        if (!arrowStack.isEmpty() && arrowStack.getCount() >= amount) {
+            arrowStack.shrink(amount);
+            saveInventory(quiverStack, items);
+            return true;
+        }
+        return false;
+    }
+
+    public static int getArrowCount(ItemStack quiverStack) {
+        NonNullList<ItemStack> items = getInventory(quiverStack);
+        int selectedSlot = getSelectedSlot(quiverStack);
+        ItemStack arrowStack = items.get(selectedSlot);
+        return arrowStack.isEmpty() ? 0 : arrowStack.getCount();
+    }
+
+    public static void cycleSelectedSlot(ItemStack quiverStack) {
+        int current = getSelectedSlot(quiverStack);
+        NonNullList<ItemStack> items = getInventory(quiverStack);
+        
+        for (int i = 1; i < SLOT_COUNT; i++) {
+            int nextSlot = (current + i) % SLOT_COUNT;
+            if (!items.get(nextSlot).isEmpty()) {
+                setSelectedSlot(quiverStack, nextSlot);
+                return;
+            }
+        }
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/inventory/QuiverContainer.java
+// ============================================================================
+package com.example.speedforce.inventory;
+
+import com.example.speedforce.item.QuiverItem;
+import net.minecraft.core.NonNullList;
+import net.minecraft.world.Container;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+
+public class QuiverContainer implements Container {
+
+    private final ItemStack quiverStack;
+    private final NonNullList<ItemStack> items;
+
+    public QuiverContainer(ItemStack quiverStack) {
+        this.quiverStack = quiverStack;
+        this.items = QuiverItem.getInventory(quiverStack);
+    }
+
+    @Override
+    public int getContainerSize() {
+        return QuiverItem.SLOT_COUNT;
+    }
+
+    @Override
+    public boolean isEmpty() {
+        for (ItemStack stack : items) {
+            if (!stack.isEmpty()) return false;
+        }
+        return true;
+    }
+
+    @Override
+    public ItemStack getItem(int slot) {
+        return items.get(slot);
+    }
+
+    @Override
+    public ItemStack removeItem(int slot, int amount) {
+        ItemStack result = items.get(slot).split(amount);
+        if (!result.isEmpty()) {
+            setChanged();
+        }
+        return result;
+    }
+
+    @Override
+    public ItemStack removeItemNoUpdate(int slot) {
+        ItemStack stack = items.get(slot);
+        items.set(slot, ItemStack.EMPTY);
+        return stack;
+    }
+
+    @Override
+    public void setItem(int slot, ItemStack stack) {
+        items.set(slot, stack);
+        setChanged();
+    }
+
+    @Override
+    public void setChanged() {
+        QuiverItem.saveInventory(quiverStack, items);
+    }
+
+    @Override
+    public boolean stillValid(Player player) {
+        return true;
+    }
+
+    @Override
+    public void clearContent() {
+        items.clear();
+        setChanged();
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/inventory/QuiverMenu.java
+// ============================================================================
+package com.example.speedforce.inventory;
+
+import com.example.speedforce.item.QuiverItem;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ArrowItem;
+import net.minecraft.world.item.ItemStack;
+import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
+
+import javax.annotation.Nullable;
+
+public class QuiverMenu extends AbstractContainerMenu {
+
+    public static final MenuType<QuiverMenu> TYPE = IMenuTypeExtension.create(QuiverMenu::new);
+
+    private final ItemStack quiverStack;
+    private final QuiverContainer container;
+
+    public QuiverMenu(int containerId, Inventory playerInventory, ItemStack quiverStack) {
+        super(TYPE, containerId);
+        this.quiverStack = quiverStack;
+        this.container = new QuiverContainer(quiverStack);
+
+        for (int i = 0; i < 5; i++) {
+            this.addSlot(new QuiverSlot(container, i, 44 + i * 18, 36));
+        }
+
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 9; col++) {
+                this.addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 84 + row * 18));
+            }
+        }
+
+        for (int col = 0; col < 9; col++) {
+            this.addSlot(new Slot(playerInventory, col, 8 + col * 18, 142));
+        }
+    }
+
+    public QuiverMenu(int containerId, Inventory playerInventory, FriendlyByteBuf buffer) {
+        this(containerId, playerInventory, ItemStack.EMPTY);
+    }
+
+    public int getSelectedSlot() {
+        return QuiverItem.getSelectedSlot(quiverStack);
+    }
+
+    @Override
+    public ItemStack quickMoveStack(Player player, int slotIndex) {
+        Slot slot = this.slots.get(slotIndex);
+        if (slot == null || !slot.hasItem()) return ItemStack.EMPTY;
+
+        ItemStack slotStack = slot.getItem();
+        ItemStack originalStack = slotStack.copy();
+
+        if (slotIndex < 5) {
+            if (!this.moveItemStackTo(slotStack, 5, this.slots.size(), true)) {
+                return ItemStack.EMPTY;
+            }
+        } else {
+            if (!this.moveItemStackTo(slotStack, 0, 5, false)) {
+                return ItemStack.EMPTY;
+            }
+        }
+
+        if (slotStack.isEmpty()) {
+            slot.set(ItemStack.EMPTY);
+        } else {
+            slot.setChanged();
+        }
+
+        return originalStack;
+    }
+
+    @Override
+    public boolean stillValid(Player player) {
+        return true;
+    }
+
+    private static class QuiverSlot extends Slot {
+        public QuiverSlot(QuiverContainer container, int slot, int x, int y) {
+            super(container, slot, x, y);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return stack.getItem() instanceof ArrowItem;
+        }
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/screen/QuiverScreen.java
+// ============================================================================
+package com.example.speedforce.client.screen;
+
+import com.example.speedforce.SpeedForceMod;
+import com.example.speedforce.inventory.QuiverMenu;
+import com.example.speedforce.item.QuiverItem;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+
+public class QuiverScreen extends AbstractContainerScreen<QuiverMenu> {
+
+    private static final ResourceLocation BACKGROUND = ResourceLocation.fromNamespaceAndPath(
+        SpeedForceMod.MOD_ID, "textures/gui/quiver.png");
+
+    public QuiverScreen(QuiverMenu menu, Inventory playerInventory, Component title) {
+        super(menu, playerInventory, title);
+        this.imageWidth = 176;
+        this.imageHeight = 166;
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+        this.titleLabelX = (this.imageWidth - this.font.width(this.title)) / 2;
+    }
+
+    @Override
+    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
+        graphics.blit(BACKGROUND, this.leftPos, this.topPos, 0, 0, this.imageWidth, this.imageHeight);
+        
+        int selectedSlot = menu.getSelectedSlot();
+        int slotX = this.leftPos + 43 + selectedSlot * 18;
+        int slotY = this.topPos + 35;
+        graphics.fill(slotX, slotY, slotX + 18, slotY + 18, 0x80FFFFFF);
+    }
+
+    @Override
+    protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
+        graphics.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY, 0x404040, false);
+        graphics.drawString(this.font, this.playerInventoryTitle, 8, 72, 0x404040, false);
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        super.render(graphics, mouseX, mouseY, partialTick);
+        this.renderTooltip(graphics, mouseX, mouseY);
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/QuiverHudOverlay.java
+// ============================================================================
+package com.example.speedforce.client;
+
+import com.example.speedforce.SpeedForceMod;
+import com.example.speedforce.item.ModItems;
+import com.example.speedforce.item.QuiverItem;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.NonNullList;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
+
+@EventBusSubscriber(modid = SpeedForceMod.MOD_ID, value = Dist.CLIENT)
+public class QuiverHudOverlay {
+
+    @SubscribeEvent
+    public static void onRenderGui(RenderGuiEvent.Post event) {
+        Minecraft mc = Minecraft.getInstance();
+        Player player = mc.player;
+        if (player == null || mc.options.hideGui) return;
+
+        ItemStack mainHand = player.getMainHandItem();
+        ItemStack offHand = player.getOffhandItem();
+        boolean holdingBow = mainHand.getItem() == ModItems.GREEN_ARROW_BOW.get() || offHand.getItem() == ModItems.GREEN_ARROW_BOW.get();
+
+        if (!holdingBow) return;
+
+        ItemStack quiver = findQuiver(player);
+        if (quiver.isEmpty()) return;
+
+        GuiGraphics graphics = event.getGuiGraphics();
+        int screenWidth = mc.getWindow().getGuiScaledWidth();
+        int screenHeight = mc.getWindow().getGuiScaledHeight();
+
+        NonNullList<ItemStack> arrows = QuiverItem.getInventory(quiver);
+        int selectedSlot = QuiverItem.getSelectedSlot(quiver);
+
+        int slotSize = 22;
+        int startX = screenWidth - slotSize - 2;
+        int startY = (screenHeight - (5 * slotSize)) / 2;
+
+        for (int i = 0; i < 5; i++) {
+            int y = startY + i * slotSize;
+
+            graphics.fill(startX, y, startX + 20, y + 20, 0x80000000);
+
+            if (i == selectedSlot) {
+                graphics.fill(startX - 1, y - 1, startX + 21, y, 0xFFFFFFFF);
+                graphics.fill(startX - 1, y + 20, startX + 21, y + 21, 0xFFFFFFFF);
+                graphics.fill(startX - 1, y, startX, y + 20, 0xFFFFFFFF);
+                graphics.fill(startX + 20, y, startX + 21, y + 20, 0xFFFFFFFF);
+            } else {
+                graphics.fill(startX - 1, y - 1, startX + 21, y, 0xFF555555);
+                graphics.fill(startX - 1, y + 20, startX + 21, y + 21, 0xFF555555);
+                graphics.fill(startX - 1, y, startX, y + 20, 0xFF555555);
+                graphics.fill(startX + 20, y, startX + 21, y + 20, 0xFF555555);
+            }
+
+            ItemStack arrow = arrows.get(i);
+            if (!arrow.isEmpty()) {
+                graphics.renderItem(arrow, startX + 2, y + 2);
+                graphics.renderItemDecorations(mc.font, arrow, startX + 2, y + 2);
+            }
+        }
+    }
+
+    private static ItemStack findQuiver(Player player) {
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack.getItem() instanceof QuiverItem) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/model/QuiverModel.java
+// ============================================================================
+package com.example.speedforce.client.model;
+
+import com.example.speedforce.SpeedForceMod;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.model.EntityModel;
+import net.minecraft.client.model.geom.ModelLayerLocation;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.model.geom.PartPose;
+import net.minecraft.client.model.geom.builders.CubeListBuilder;
+import net.minecraft.client.model.geom.builders.LayerDefinition;
+import net.minecraft.client.model.geom.builders.MeshDefinition;
+import net.minecraft.client.model.geom.builders.PartDefinition;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.Player;
+
+public class QuiverModel extends EntityModel<Player> {
+
+    public static final ModelLayerLocation LAYER_LOCATION = new ModelLayerLocation(
+        ResourceLocation.fromNamespaceAndPath(SpeedForceMod.MOD_ID, "quiver_layer"), "main");
+
+    private final ModelPart quiver;
+
+    public QuiverModel(ModelPart root) {
+        this.quiver = root.getChild("quiver");
+    }
+
+    public static LayerDefinition createBodyLayer() {
+        MeshDefinition meshdefinition = new MeshDefinition();
+        PartDefinition partdefinition = meshdefinition.getRoot();
+
+        PartDefinition quiver = partdefinition.addOrReplaceChild("quiver", CubeListBuilder.create(), PartPose.offset(-4.0F, 0.0F, -2.0F));
+
+        PartDefinition pad = quiver.addOrReplaceChild("pad", CubeListBuilder.create()
+            .texOffs(0, 26).addBox(-0.1F, -0.1F, 0.1F, 5.0F, 5.0F, 1.0F), 
+            PartPose.offset(-4.3F, -0.1F, 1.5F));
+
+        pad.addOrReplaceChild("strap5", CubeListBuilder.create()
+            .texOffs(13, 27).addBox(0.0F, 0.0F, 0.0F, 5.0F, 1.0F, 4.0F), 
+            PartPose.offsetAndRotation(0.0F, 3.9F, -3.8F, 0.0F, (float)Math.PI / 90F, -0.12217305F));
+
+        PartDefinition baseRight = pad.addOrReplaceChild("baseRight", CubeListBuilder.create()
+            .texOffs(0, 15).addBox(-1.5F, 0.0F, 0.5F, 1.0F, 9.0F, 2.0F), 
+            PartPose.offsetAndRotation(1.8F, 0.9F, 0.7F, 0.0F, 0.0F, -0.43633232F));
+
+        baseRight.addOrReplaceChild("baseBack", CubeListBuilder.create()
+            .texOffs(6, 16).addBox(0.0F, 0.0F, 0.0F, 2.0F, 9.0F, 1.0F), 
+            PartPose.offset(-0.8F, 0.0F, 2.2F));
+
+        baseRight.addOrReplaceChild("baseStrap", CubeListBuilder.create()
+            .texOffs(0, 12).mirror().addBox(0.0F, 0.0F, 0.0F, 1.0F, 1.0F, 2.0F), 
+            PartPose.offset(-2.0F, 1.0F, 0.0F));
+
+        baseRight.addOrReplaceChild("baseStrap_1", CubeListBuilder.create()
+            .texOffs(0, 12).addBox(0.0F, 0.0F, 0.0F, 1.0F, 1.0F, 2.0F), 
+            PartPose.offset(1.3F, 1.0F, 0.0F));
+
+        baseRight.addOrReplaceChild("baseLeft", CubeListBuilder.create()
+            .texOffs(0, 15).mirror().addBox(0.0F, 0.0F, 0.0F, 1.0F, 9.0F, 2.0F), 
+            PartPose.offset(0.9F, 0.0F, 0.5F));
+
+        PartDefinition baseFront = baseRight.addOrReplaceChild("baseFront", CubeListBuilder.create()
+            .texOffs(12, 16).addBox(-1.0F, 0.0F, 0.0F, 2.0F, 9.0F, 1.0F), 
+            PartPose.offset(0.2F, 0.0F, -0.1F));
+
+        baseFront.addOrReplaceChild("baseBottom", CubeListBuilder.create()
+            .texOffs(0, 0).addBox(0.0F, 0.0F, -1.0F, 2.0F, 1.0F, 2.0F), 
+            PartPose.offset(-1.0F, 8.7F, 1.6F));
+
+        PartDefinition strap1 = pad.addOrReplaceChild("strap1", CubeListBuilder.create()
+            .texOffs(0, 6).addBox(-4.0F, 0.0F, -4.0F, 9.0F, 1.0F, 5.0F), 
+            PartPose.offsetAndRotation(4.0F, 2.5F, 0.0F, 0.0F, 0.0F, 0.62831855F));
+
+        strap1.addOrReplaceChild("strap2", CubeListBuilder.create()
+            .texOffs(5, 0).addBox(0.0F, -1.0F, -4.0F, 1.0F, 1.0F, 5.0F), 
+            PartPose.offsetAndRotation(5.0F, 1.0F, 0.0F, 0.0F, (float)Math.PI / 180F, -0.62831855F));
+
+        PartDefinition strap3 = strap1.addOrReplaceChild("strap3", CubeListBuilder.create()
+            .texOffs(18, 1).addBox(-1.0F, -1.0F, -4.0F, 1.0F, 1.0F, 4.0F), 
+            PartPose.offsetAndRotation(-4.0F, 1.0F, 0.1F, (float)Math.PI / 180F, (float)(-Math.PI) / 180F, 0.9599311F));
+
+        strap3.addOrReplaceChild("shape4", CubeListBuilder.create()
+            .texOffs(21, 4).addBox(-1.0F, -1.0F, 0.0F, 1.0F, 1.0F, 1.0F), 
+            PartPose.offset(0.0F, 0.0F, -4.3F));
+
+        return LayerDefinition.create(meshdefinition, 32, 32);
+    }
+
+    @Override
+    public void setupAnim(Player entity, float limbSwing, float limbSwingAmount, float ageInTicks, float netHeadYaw, float headPitch) {
+    }
+
+    @Override
+    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
+        quiver.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/render/QuiverLayer.java (v1.0.6v2)
+// ============================================================================
+package com.example.speedforce.client.render;
+
+import com.example.speedforce.SpeedForceMod;
+import com.example.speedforce.client.model.QuiverModel;
+import com.example.speedforce.item.QuiverItem;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.entity.RenderLayerParent;
+import net.minecraft.client.renderer.entity.layers.RenderLayer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+
+public class QuiverLayer extends RenderLayer<AbstractClientPlayer, PlayerModel<AbstractClientPlayer>> {
+
+    private static final ResourceLocation QUIVER_TEXTURE = ResourceLocation.fromNamespaceAndPath(SpeedForceMod.MOD_ID, "textures/entity/quiver_dark_archer.png");
+    private final QuiverModel quiverModel;
+
+    public QuiverLayer(RenderLayerParent<AbstractClientPlayer, PlayerModel<AbstractClientPlayer>> renderer, QuiverModel model) {
+        super(renderer);
+        this.quiverModel = model;
+    }
+
+    @Override
+    public void render(PoseStack poseStack, MultiBufferSource buffer, int packedLight, AbstractClientPlayer player, float limbSwing, float limbSwingAmount, float partialTick, float ageInTicks, float netHeadYaw, float headPitch) {
+        ItemStack quiver = findQuiver(player);
+        if (quiver.isEmpty()) return;
+
+        poseStack.pushPose();
+        this.getParentModel().body.translateAndRotate(poseStack);
+
+        poseStack.translate(0.25D, 0.05D, 0.25D);
+
+        VertexConsumer vertexConsumer = buffer.getBuffer(RenderType.entityCutoutNoCull(QUIVER_TEXTURE));
+        this.quiverModel.renderToBuffer(poseStack, vertexConsumer, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
+
+        poseStack.popPose();
+    }
+
+    private ItemStack findQuiver(Player player) {
+        ItemStack mainHand = player.getMainHandItem();
+        ItemStack offHand = player.getOffhandItem();
+        
+        if (mainHand.getItem() instanceof QuiverItem || offHand.getItem() instanceof QuiverItem) {
+            return ItemStack.EMPTY;
+        }
+        
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack.getItem() instanceof QuiverItem) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/client/ClientSetupEvents.java
+// ============================================================================
+package com.example.speedforce.client;
+
+import com.example.speedforce.SpeedForceMod;
+import com.example.speedforce.client.model.QuiverModel;
+import com.example.speedforce.client.render.QuiverLayer;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.renderer.entity.player.PlayerRenderer;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+
+@EventBusSubscriber(modid = SpeedForceMod.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+public class ClientSetupEvents {
+
+    @SubscribeEvent
+    public static void registerLayerDefinitions(EntityRenderersEvent.RegisterLayerDefinitions event) {
+        event.registerLayerDefinition(QuiverModel.LAYER_LOCATION, QuiverModel::createBodyLayer);
+    }
+
+    @SubscribeEvent
+    public static void addPlayerLayers(EntityRenderersEvent.AddLayers event) {
+        QuiverModel quiverModel = new QuiverModel(event.getEntityModels().bakeLayer(QuiverModel.LAYER_LOCATION));
+
+        for (var skin : event.getSkins()) {
+            var renderer = event.getSkin(skin);
+            if (renderer instanceof PlayerRenderer playerRenderer) {
+                playerRenderer.addLayer(new QuiverLayer(playerRenderer, quiverModel));
+            }
+        }
+    }
+}
+// ============================================================================
+// src/main/java/com/example/speedforce/event/QuiverEventHandler.java
+// ============================================================================
+package com.example.speedforce.event;
+
+import com.example.speedforce.item.QuiverItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.entity.player.ArrowLooseEvent;
+
+@EventBusSubscriber(modid = "speedforce")
+public class QuiverEventHandler {
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onArrowLoose(ArrowLooseEvent event) {
+        if (event.isCanceled()) return;
+        
+        ItemStack bow = event.getBow();
+        if (bow.getItem() != Items.BOW) {
+            return;
+        }
+
+        ItemStack quiver = findQuiver(event.getEntity());
+        if (quiver.isEmpty()) return;
+
+        ItemStack selectedArrow = QuiverItem.getSelectedArrow(quiver);
+        if (selectedArrow.isEmpty()) return;
+
+        QuiverItem.consumeArrow(quiver, 1);
+    }
+
+    private static ItemStack findQuiver(net.minecraft.world.entity.player.Player player) {
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack.getItem() instanceof QuiverItem) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+}
 package com.example.speedforce.item;
 
 import com.example.speedforce.entity.ModEntityTypes;

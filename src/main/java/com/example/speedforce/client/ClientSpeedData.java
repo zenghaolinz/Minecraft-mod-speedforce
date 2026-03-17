@@ -12,4 +12,5 @@ public class ClientSpeedData {
     public static int customTrailColorG = 210;
     public static int customTrailColorB = 0;
     public static boolean showHelp = true;
+    public static int clientHistorySize = 0;
 }

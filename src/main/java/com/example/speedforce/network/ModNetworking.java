@@ -44,7 +44,7 @@ public class ModNetworking {
             context.enqueueWork(() -> {
                 if (context.player() instanceof ServerPlayer player) {
                     SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
-                    if (data.hasPower) {
+                    if (data.hasPower && data.speedLevel > 0) {
                         SuitType suitType = getWornSuitType(player);
                         int maxLevel = suitType != null ? 10 + suitType.getSpeedBonus() : 10;
                         if (payload.increase()) {
@@ -131,6 +131,39 @@ public class ModNetworking {
 
         registrar.playToServer(WorkbenchPurchasePayload.TYPE, WorkbenchPurchasePayload.STREAM_CODEC, 
             WorkbenchPurchasePayload::handle);
+
+        registrar.playToServer(CycleQuiverPayload.TYPE, CycleQuiverPayload.STREAM_CODEC,
+            CycleQuiverPayload::handle);
+
+        registrar.playToServer(RewindPayload.TYPE, RewindPayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                if (context.player() instanceof ServerPlayer player) {
+                    if (payload.startRewind()) {
+                        com.example.speedforce.event.RewindHandler.startRewind(player);
+                    } else {
+                        com.example.speedforce.event.RewindHandler.stopRewind(player);
+                    }
+                }
+            });
+        });
+
+        registrar.playToServer(CancelRewindPayload.TYPE, CancelRewindPayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                if (context.player() instanceof ServerPlayer player) {
+                    com.example.speedforce.event.RewindHandler.cancelRewind(player);
+                }
+            });
+        });
+
+        registrar.playToClient(RewindStatePayload.TYPE, RewindStatePayload.STREAM_CODEC, (payload, context) -> {
+            context.enqueueWork(() -> {
+                com.example.speedforce.client.ClientRewindData.phase = payload.phase();
+                com.example.speedforce.client.ClientRewindData.framesRewound = payload.framesRewound();
+                com.example.speedforce.client.ClientRewindData.rewindSpeed = payload.rewindSpeed();
+                com.example.speedforce.client.ClientRewindData.confirmTimeRemaining = payload.confirmTimeRemaining();
+                com.example.speedforce.client.ClientRewindData.totalHistorySize = payload.totalHistorySize();
+            });
+        });
     }
 
     public static void syncToClient(ServerPlayer player) {

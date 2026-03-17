@@ -1,11 +1,14 @@
 package com.example.speedforce.client;
 
 import com.example.speedforce.network.BulletTimePayload;
+import com.example.speedforce.network.CancelRewindPayload;
 import com.example.speedforce.network.PhasingPayload;
+import com.example.speedforce.network.RewindPayload;
 import com.example.speedforce.network.SpeedLevelPayload;
 import com.example.speedforce.network.TogglePowerPayload;
 import com.example.speedforce.particle.ModParticles;
 import com.example.speedforce.client.particle.YellowFlashParticle;
+import com.example.speedforce.client.screen.QuiverScreen;
 import com.example.speedforce.client.screen.SpeedForceWorkbenchScreen;
 import com.example.speedforce.menu.ModMenuTypes;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -26,6 +29,13 @@ public class ClientKeybinds {
         "key.speedforce.toggle_power",
         InputConstants.Type.KEYSYM,
         GLFW.GLFW_KEY_C,
+        "category.speedforce.keys"
+    );
+
+    public static final KeyMapping CYCLE_QUIVER_KEY = new KeyMapping(
+        "key.speedforce.cycle_quiver",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_G,
         "category.speedforce.keys"
     );
 
@@ -71,6 +81,16 @@ public class ClientKeybinds {
         "category.speedforce.keys"
     );
 
+    public static final KeyMapping REWIND_KEY = new KeyMapping(
+        "key.speedforce.rewind",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_R,
+        "category.speedforce.keys"
+    );
+
+    private static boolean wasRewinding = false;
+    private static boolean wasLeftAltPressed = false;
+
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
@@ -105,6 +125,40 @@ public class ClientKeybinds {
         while (TOGGLE_HELP_KEY.consumeClick()) {
             ClientSpeedData.showHelp = !ClientSpeedData.showHelp;
         }
+
+        while (CYCLE_QUIVER_KEY.consumeClick()) {
+            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new com.example.speedforce.network.CycleQuiverPayload());
+        }
+
+        boolean isRewindingNow = REWIND_KEY.isDown() && ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0;
+        if (isRewindingNow != wasRewinding) {
+            PacketDistributor.sendToServer(new RewindPayload(isRewindingNow));
+            wasRewinding = isRewindingNow;
+        }
+
+        if (ClientRewindData.isConfirming()) {
+            boolean isLeftAltDown = InputConstants.isKeyDown(
+                mc.getWindow().getWindow(), 
+                GLFW.GLFW_KEY_LEFT_ALT
+            );
+            if (isLeftAltDown && !wasLeftAltPressed) {
+                PacketDistributor.sendToServer(new CancelRewindPayload());
+            }
+            wasLeftAltPressed = isLeftAltDown;
+        } else {
+            wasLeftAltPressed = false;
+        }
+
+        if (ClientSpeedData.hasPower && ClientSpeedData.speedLevel > 0) {
+            if (isRewindingNow) {
+                ClientSpeedData.clientHistorySize = Math.max(0, ClientSpeedData.clientHistorySize - 1);
+            } else {
+                ClientSpeedData.clientHistorySize = Math.min(200, ClientSpeedData.clientHistorySize + 1);
+            }
+        } else {
+            ClientSpeedData.clientHistorySize = 0;
+        }
     }
 }
 
@@ -119,6 +173,8 @@ class ClientModEvents {
         event.register(ClientKeybinds.PHASING_KEY);
         event.register(ClientKeybinds.COLOR_PALETTE_KEY);
         event.register(ClientKeybinds.TOGGLE_HELP_KEY);
+        event.register(ClientKeybinds.CYCLE_QUIVER_KEY);
+        event.register(ClientKeybinds.REWIND_KEY);
     }
 
     @SubscribeEvent
@@ -158,5 +214,6 @@ class ClientModEvents {
     @SubscribeEvent
     public static void registerMenuScreens(net.neoforged.neoforge.client.event.RegisterMenuScreensEvent event) {
         event.register(ModMenuTypes.SPEED_FORCE_WORKBENCH.get(), SpeedForceWorkbenchScreen::new);
+        event.register(ModMenuTypes.QUIVER.get(), QuiverScreen::new);
     }
 }

@@ -22,12 +22,30 @@ public class GreenArrowBowItem extends BowItem {
         return 72000;
     }
 
-    private boolean hasNormalArrow(Player player) {
+    private ItemStack findQuiver(Player player) {
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack.getItem() instanceof QuiverItem) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private boolean hasAmmunition(Player player) {
         if (player.getAbilities().instabuild) {
             return true;
         }
+        
+        ItemStack quiver = findQuiver(player);
+        if (!quiver.isEmpty()) {
+            ItemStack selectedArrow = QuiverItem.getSelectedArrow(quiver);
+            if (!selectedArrow.isEmpty() && selectedArrow.getItem() instanceof ArrowItem) {
+                return true;
+            }
+        }
+        
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
-            if (player.getInventory().getItem(i).getItem() == ModItems.NORMAL_ARROW.get()) {
+            if (player.getInventory().getItem(i).getItem() instanceof ArrowItem) {
                 return true;
             }
         }
@@ -37,7 +55,7 @@ public class GreenArrowBowItem extends BowItem {
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack bowStack = player.getItemInHand(hand);
-        if (hasNormalArrow(player)) {
+        if (hasAmmunition(player)) {
             player.startUsingItem(hand);
             return InteractionResultHolder.consume(bowStack);
         }
@@ -63,12 +81,25 @@ public class GreenArrowBowItem extends BowItem {
             boolean hasFullSet = hasFullGreenArrowSet(player);
             
             ItemStack arrowStack = ItemStack.EMPTY;
+            ItemStack quiver = findQuiver(player);
+            boolean fromQuiver = false;
             
-            for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
-                ItemStack invStack = player.getInventory().getItem(i);
-                if (invStack.getItem() == ModItems.NORMAL_ARROW.get()) {
-                    arrowStack = invStack;
-                    break;
+            if (!quiver.isEmpty()) {
+                ItemStack selectedArrow = QuiverItem.getSelectedArrow(quiver);
+                if (!selectedArrow.isEmpty() && selectedArrow.getItem() instanceof ArrowItem) {
+                    arrowStack = selectedArrow.copy();
+                    arrowStack.setCount(1);
+                    fromQuiver = true;
+                }
+            }
+            
+            if (!fromQuiver) {
+                for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+                    ItemStack invStack = player.getInventory().getItem(i);
+                    if (invStack.getItem() instanceof ArrowItem) {
+                        arrowStack = invStack;
+                        break;
+                    }
                 }
             }
             
@@ -92,8 +123,9 @@ public class GreenArrowBowItem extends BowItem {
             }
             
             float velocity = calculateArrowVelocity(charge);
+            if (velocity < 0.1D) return;
             
-            arrow.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, velocity * 3.0F, 0.0F);
+            arrow.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, velocity * 3.0F, 1.0F);
             
             if (hasFullSet) {
                 arrow.setBaseDamage(arrow.getBaseDamage() * 3.0);
@@ -112,9 +144,13 @@ public class GreenArrowBowItem extends BowItem {
             stack.hurtAndBreak(1, player, LivingEntity.getSlotForHand(entityLiving.getUsedItemHand()));
             
             if (!hasInfinity) {
-                arrowStack.shrink(1);
-                if (arrowStack.isEmpty()) {
-                    player.getInventory().removeItem(arrowStack);
+                if (fromQuiver) {
+                    QuiverItem.consumeArrow(quiver, 1);
+                } else {
+                    arrowStack.shrink(1);
+                    if (arrowStack.isEmpty()) {
+                        player.getInventory().removeItem(arrowStack);
+                    }
                 }
             }
         }

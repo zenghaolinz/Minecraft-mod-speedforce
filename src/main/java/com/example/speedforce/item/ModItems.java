@@ -166,4 +166,7 @@ public class ModItems {
 
     public static final DeferredItem<NormalArrowItem> NORMAL_ARROW = ITEMS.register("normal_arrow",
         () -> new NormalArrowItem(new net.minecraft.world.item.Item.Properties()));
+
+    public static final DeferredItem<QuiverItem> QUIVER = ITEMS.register("quiver",
+        () -> new QuiverItem(new net.minecraft.world.item.Item.Properties().stacksTo(1)));
 }
