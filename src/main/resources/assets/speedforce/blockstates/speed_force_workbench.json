@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "speedforce:block/speed_force_workbench"
+    }
+  }
+}

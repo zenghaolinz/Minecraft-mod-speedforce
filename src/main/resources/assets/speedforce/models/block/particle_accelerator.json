@@ -1,6 +1,12 @@
 {
-  "parent": "minecraft:block/cube_all",
+  "parent": "minecraft:block/cube",
   "textures": {
-    "all": "minecraft:block/iron_block"
+    "particle": "speedforce:block/particle_accelerator/repeating_command_block_front",
+    "north": "speedforce:block/particle_accelerator/repeating_command_block_front",
+    "south": "speedforce:block/particle_accelerator/repeating_command_block_back",
+    "east": "speedforce:block/particle_accelerator/repeating_command_block_side",
+    "west": "speedforce:block/particle_accelerator/repeating_command_block_side",
+    "up": "speedforce:block/particle_accelerator/repeating_command_block_conditional",
+    "down": "speedforce:block/particle_accelerator/repeating_command_block_conditional"
   }
 }

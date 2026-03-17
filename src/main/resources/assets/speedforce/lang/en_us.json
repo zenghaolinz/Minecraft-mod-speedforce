@@ -1,5 +1,7 @@
 {
   "block.speedforce.particle_accelerator": "Particle Accelerator",
+  "block.speedforce.speed_force_workbench": "Speed Force Workbench",
+  "item.speedforce.speed_force_workbench": "Speed Force Workbench",
   "item.speedforce.flash_helmet": "Flash Helmet",
   "item.speedforce.flash_chestplate": "Flash Chestplate",
   "item.speedforce.flash_leggings": "Flash Leggings",
@@ -64,5 +66,9 @@
   "gui.speedforce.color.pink": "Pink",
   "gui.speedforce.color.lime": "Lime",
   "gui.speedforce.color.lightblue": "Light Blue",
-  "gui.speedforce.color.gold": "Gold"
+  "gui.speedforce.color.gold": "Gold",
+  "gui.speedforce.deposit": "Deposit Items",
+  "gui.speedforce.points": "Points: %s",
+  "gui.speedforce.purchase_success": "Suit purchased successfully!",
+  "gui.speedforce.purchase_fail": "Not enough points!"
 }

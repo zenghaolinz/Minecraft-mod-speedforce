@@ -12,4 +12,8 @@ public class ModBlocks {
     public static final DeferredBlock<ParticleAcceleratorBlock> PARTICLE_ACCELERATOR = 
         BLOCKS.register("particle_accelerator", 
             () -> new ParticleAcceleratorBlock(Block.Properties.ofFullCopy(Blocks.IRON_BLOCK).noOcclusion()));
+
+    public static final DeferredBlock<SpeedForceWorkbenchBlock> SPEED_FORCE_WORKBENCH = 
+        BLOCKS.register("speed_force_workbench",
+            () -> new SpeedForceWorkbenchBlock(Block.Properties.ofFullCopy(Blocks.IRON_BLOCK).noOcclusion()));
 }

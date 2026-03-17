@@ -128,6 +128,9 @@ public class ModNetworking {
                 }
             });
         });
+
+        registrar.playToServer(WorkbenchPurchasePayload.TYPE, WorkbenchPurchasePayload.STREAM_CODEC, 
+            WorkbenchPurchasePayload::handle);
     }
 
     public static void syncToClient(ServerPlayer player) {

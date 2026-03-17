@@ -21,6 +21,9 @@ public class ModItems {
     public static final DeferredItem<BlockItem> PARTICLE_ACCELERATOR = ITEMS.register("particle_accelerator",
         () -> new BlockItem(ModBlocks.PARTICLE_ACCELERATOR.get(), new net.minecraft.world.item.Item.Properties()));
 
+    public static final DeferredItem<BlockItem> SPEED_FORCE_WORKBENCH = ITEMS.register("speed_force_workbench",
+        () -> new BlockItem(ModBlocks.SPEED_FORCE_WORKBENCH.get(), new net.minecraft.world.item.Item.Properties()));
+
     private static Holder<ArmorMaterial> createArmorMaterial(String name) {
         return Holder.direct(new ArmorMaterial(
             new EnumMap<>(ArmorItem.Type.class) {{

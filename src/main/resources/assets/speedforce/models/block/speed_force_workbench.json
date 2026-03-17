@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "speedforce:block/speed_force_workbench/command_block_front",
+    "north": "speedforce:block/speed_force_workbench/command_block_front",
+    "south": "speedforce:block/speed_force_workbench/command_block_back",
+    "east": "speedforce:block/speed_force_workbench/command_block_side",
+    "west": "speedforce:block/speed_force_workbench/command_block_side",
+    "up": "speedforce:block/speed_force_workbench/command_block_conditional",
+    "down": "speedforce:block/speed_force_workbench/command_block_conditional"
+  }
+}

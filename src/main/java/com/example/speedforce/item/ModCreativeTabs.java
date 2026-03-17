@@ -57,5 +57,6 @@ public class ModCreativeTabs {
                 output.accept(ModItems.NORMAL_ARROW.get());
                 
                 output.accept(ModItems.PARTICLE_ACCELERATOR.get());
+                output.accept(ModItems.SPEED_FORCE_WORKBENCH.get());
             }).build());
 }

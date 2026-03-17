@@ -16,4 +16,9 @@ public class ModBlockEntities {
         BLOCK_ENTITIES.register("particle_accelerator", 
             () -> BlockEntityType.Builder.of(ParticleAcceleratorBlockEntity::new, 
                 ModBlocks.PARTICLE_ACCELERATOR.get()).build(null));
+
+    public static final Supplier<BlockEntityType<SpeedForceWorkbenchBlockEntity>> SPEED_FORCE_WORKBENCH = 
+        BLOCK_ENTITIES.register("speed_force_workbench",
+            () -> BlockEntityType.Builder.of(SpeedForceWorkbenchBlockEntity::new,
+                ModBlocks.SPEED_FORCE_WORKBENCH.get()).build(null));
 }

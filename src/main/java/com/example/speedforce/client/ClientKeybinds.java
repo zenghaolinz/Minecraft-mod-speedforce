@@ -6,6 +6,8 @@ import com.example.speedforce.network.SpeedLevelPayload;
 import com.example.speedforce.network.TogglePowerPayload;
 import com.example.speedforce.particle.ModParticles;
 import com.example.speedforce.client.particle.YellowFlashParticle;
+import com.example.speedforce.client.screen.SpeedForceWorkbenchScreen;
+import com.example.speedforce.menu.ModMenuTypes;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -151,5 +153,10 @@ class ClientModEvents {
                     entity != null && entity.isUsingItem() && entity.getUseItem() == stack ? 1.0F : 0.0F
             );
         });
+    }
+
+    @SubscribeEvent
+    public static void registerMenuScreens(net.neoforged.neoforge.client.event.RegisterMenuScreensEvent event) {
+        event.register(ModMenuTypes.SPEED_FORCE_WORKBENCH.get(), SpeedForceWorkbenchScreen::new);
     }
 }

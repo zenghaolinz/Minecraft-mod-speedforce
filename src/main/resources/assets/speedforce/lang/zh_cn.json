@@ -1,5 +1,7 @@
 {
   "block.speedforce.particle_accelerator": "粒子加速器",
+  "block.speedforce.speed_force_workbench": "神速力合成台",
+  "item.speedforce.speed_force_workbench": "神速力合成台",
   "item.speedforce.flash_helmet": "闪电侠头盔",
   "item.speedforce.flash_chestplate": "闪电侠胸甲",
   "item.speedforce.flash_leggings": "闪电侠护腿",
@@ -64,5 +66,9 @@
   "gui.speedforce.color.pink": "粉色",
   "gui.speedforce.color.lime": "酸橙",
   "gui.speedforce.color.lightblue": "浅蓝",
-  "gui.speedforce.color.gold": "金色"
+  "gui.speedforce.color.gold": "金色",
+  "gui.speedforce.deposit": "存入物品",
+  "gui.speedforce.points": "积分: %s",
+  "gui.speedforce.purchase_success": "成功购买套装!",
+  "gui.speedforce.purchase_fail": "积分不足!"
 }
