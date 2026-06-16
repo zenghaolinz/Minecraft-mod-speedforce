@@ -5,8 +5,11 @@ import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.network.RewindStatePayload;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.network.protocol.game.ClientboundSetCarriedItemPacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.food.FoodData;
 import net.minecraft.world.level.Level;
@@ -143,6 +146,10 @@ public class RewindHandler {
         // Stop the unified session
         RewindSession.stop(dimension);
 
+        // Final inventory sync — ensures the last-frame state is fully visible to client,
+        // overriding any out-of-order packets that may have arrived during rewind.
+        forceSyncPlayerInventory(player);
+
         PacketDistributor.sendToPlayer(player, new RewindStatePayload(0, 0, 1, 0, 0));
     }
 
@@ -228,10 +235,15 @@ public class RewindHandler {
         player.setDeltaMovement(snap.deltaMovement());
         player.fallDistance = snap.fallDistance();
 
+        Inventory inventory = player.getInventory();
+
         // Inventory — clear and reload to prevent item duplication
-        player.getInventory().clearContent();
-        player.getInventory().load(snap.inventory());
-        player.getInventory().selected = snap.selectedSlot();
+        inventory.clearContent();
+        inventory.load(snap.inventory());
+
+        // Clamp selected slot defensively (in case history contained invalid index)
+        inventory.selected = Mth.clamp(snap.selectedSlot(), 0, Inventory.getSelectionSize() - 1);
+        inventory.setChanged();
 
         // Experience
         player.experienceLevel = snap.experienceLevel();
@@ -242,14 +254,49 @@ public class RewindHandler {
         player.getFoodData().setFoodLevel(snap.foodLevel());
         player.getFoodData().setSaturation(snap.saturation());
 
-        // Sync containers
-        player.inventoryMenu.broadcastChanges();
-        if (player.containerMenu != player.inventoryMenu) {
-            player.containerMenu.broadcastChanges();
-        }
-
         // Health — configurable, default true for first version
         player.setHealth(snap.health());
+
+        // CRITICAL: force a complete sync of inventory + selected slot.
+        // broadcastChanges() alone does not always sync the hotbar selection,
+        // which causes the client and server to disagree on which item is held.
+        forceSyncPlayerInventory(player);
+    }
+
+    /**
+     * Force a complete sync of the player's inventory and hotbar selection.
+     *
+     * Calling broadcastChanges() alone is not sufficient — it sends only detected
+     * deltas, and the hotbar selection (Inventory.selected) is NOT a regular
+     * container slot; it requires a dedicated ClientboundSetCarriedItemPacket.
+     *
+     * Without this, after rewind the client may render one item while the server
+     * thinks the player is holding another (e.g. seeing flint &amp; steel but the
+     * server uses TNT, causing right-click to place TNT instead of igniting).
+     */
+    private static void forceSyncPlayerInventory(ServerPlayer player) {
+        Inventory inventory = player.getInventory();
+
+        // Defensive clamp again in case anything modified it after restore
+        inventory.selected = Mth.clamp(
+            inventory.selected,
+            0,
+            Inventory.getSelectionSize() - 1
+        );
+
+        inventory.setChanged();
+
+        // Send full slot state (not just deltas) for the player's own inventory
+        player.inventoryMenu.sendAllDataToRemote();
+
+        // If the player has another container open (chest, workbench, etc.)
+        // it also caches inventory slots
+        if (player.containerMenu != player.inventoryMenu) {
+            player.containerMenu.sendAllDataToRemote();
+        }
+
+        // Hotbar selection is its own packet — broadcastChanges does NOT cover it
+        player.connection.send(new ClientboundSetCarriedItemPacket(inventory.selected));
     }
 
     private static void handleRewinding(ServerPlayer player, RewindState state) {

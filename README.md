@@ -64,7 +64,7 @@
 
 ### 安装步骤
 1. 下载并安装 NeoForge 1.21.1
-2. 将 `speedforce-1.0.8v1.jar` 放入 `.minecraft/mods` 文件夹
+2. 将 `speedforce-1.0.8v2.jar` 放入 `.minecraft/mods` 文件夹
 3. 启动游戏
 
 ## 获取神速力
@@ -99,7 +99,7 @@ I = 铁锭, R = 红石块
 
 | 项目 | 信息 |
 |------|------|
-| **版本** | 1.0.8v1 |
+| **版本** | 1.0.8v2 |
 | **作者** | NLin |
 | **许可** | MIT License |
 | **Minecraft 版本** | 1.21.1 |
@@ -111,7 +111,7 @@ I = 铁锭, R = 红石块
 ./gradlew build
 ```
 
-输出文件位于 `build/libs/speedforce-1.0.8v1.jar`
+输出文件位于 `build/libs/speedforce-1.0.8v2.jar`
 
 ### 运行测试客户端
 ```bash
@@ -119,6 +119,19 @@ I = 铁锭, R = 红石块
 ```
 
 ## 更新日志
+
+### v1.0.8v2
+
+**修复回溯后快捷栏选中槽与服务端不同步导致的「打火石变 TNT」问题**。
+
+- **现象**：回溯后右键打火石，结果在地上放了一个 TNT，而不是引燃。客户端画面是打火石，服务端却以 TNT 槽位响应交互
+- **根因**：`PlayerSnapshot` 恢复时只调用了 `inventoryMenu.broadcastChanges()`，它只发送检测到的槽位变化，**不会同步快捷栏选中槽**（`Inventory.selected`）。客户端选中槽和服务端选中槽不一致
+- **修复**：新增 `forceSyncPlayerInventory()` 在每次恢复后强制同步：
+  - `inventoryMenu.sendAllDataToRemote()`：发送完整槽位状态（不是 delta）
+  - `containerMenu.sendAllDataToRemote()`：同步打开的其他菜单（箱子等）
+  - `ClientboundSetCarriedItemPacket(selected)`：专门同步快捷栏选中槽位
+- 调整恢复顺序：clear → load → 设置 selected（带 clamp） → setChanged → 完整同步 → 单独同步选中槽
+- `confirmRewind()` 末尾再调用一次 `forceSyncPlayerInventory()`，确保最终帧覆盖倒流过程中可能乱序的数据包
 
 ### v1.0.8v1
 
