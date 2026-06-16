@@ -1,169 +1,309 @@
 package com.example.speedforce.event;
 
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.entity.vehicle.Minecart;
+import net.minecraft.world.entity.item.PrimedTnt;
+import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.entity.decoration.Painting;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 
-import java.lang.reflect.Field;
 import java.util.*;
+import java.util.logging.Logger;
 
+/**
+ * Handles entity rewind for the world.
+ *
+ * Design: each snapshot records the COMPLETE set of tracked entities in the area.
+ * On rewind, we reconcile by UUID:
+ *   - current has, target doesn't → remove (drop later items, etc.)
+ *   - target has, current doesn't → recreate from NBT (revive dead mobs, etc.)
+ *   - both have → update position/state
+ *
+ * No more DeadEntitySnapshot / PENDING_DEAD_ENTITIES.
+ * No more TNT/arrow special-casing — full NBT handles everything.
+ */
 @EventBusSubscriber(modid = "speedforce")
 public class WorldRewindHandler {
-    
-    private static final Field ARROW_IN_GROUND_FIELD;
-    static {
-        try {
-            ARROW_IN_GROUND_FIELD = AbstractArrow.class.getDeclaredField("inGround");
-            ARROW_IN_GROUND_FIELD.setAccessible(true);
-        } catch (NoSuchFieldException e) {
-            throw new RuntimeException("Failed to access AbstractArrow.inGround field", e);
-        }
-    }
-    
-    public record DeadEntitySnapshot(EntityType<?> type, CompoundTag nbt, Vec3 pos, UUID uuid) {}
-    public record EntitySnapshot(UUID uuid, Vec3 pos, float yRot, float xRot, Vec3 delta, int fuse, float health) {}
-    
-    public record TickSnapshot(List<DeadEntitySnapshot> deadEntities, List<EntitySnapshot> livingEntities) {}
 
-    private static final Map<ResourceKey<Level>, Deque<TickSnapshot>> HISTORY = new HashMap<>();
-    private static final Map<ResourceKey<Level>, List<DeadEntitySnapshot>> PENDING_DEAD_ENTITIES = new HashMap<>();
+    private static final Logger LOGGER = Logger.getLogger("SpeedForce/WorldRewind");
 
-    private static boolean isLevelRewinding(ServerLevel level) {
-        for (Player p : level.players()) {
-            if (RewindHandler.IS_REWINDING.getOrDefault(p.getUUID(), false)) {
-                return true;
-            }
-        }
-        return false;
-    }
+    /**
+     * Full entity snapshot with complete NBT data.
+     */
+    public record EntitySnapshot(
+        UUID uuid,
+        ResourceLocation typeId,
+        CompoundTag nbt
+    ) {}
+
+    /**
+     * A complete world state at a single sample point.
+     */
+    public record WorldSnapshot(
+        long gameTime,
+        Map<UUID, EntitySnapshot> entities
+    ) {}
+
+    private static final Map<ResourceKey<Level>, Deque<WorldSnapshot>> HISTORY = new HashMap<>();
+
+    private static final int SNAPSHOT_INTERVAL = 5;          // Record every 5 ticks
+    private static final int MAX_HISTORY_SNAPSHOTS = 40;     // 40 * 5 = 200 ticks = 10s coverage
+    private static final double ENTITY_TRACK_RANGE = 64.0;   // Only track entities within 64 blocks
 
     public static int getHistorySize(ServerLevel level) {
-        Deque<TickSnapshot> history = HISTORY.get(level.dimension());
+        Deque<WorldSnapshot> history = HISTORY.get(level.dimension());
         return history != null ? history.size() : 0;
     }
 
     public static void truncateHistory(ServerLevel level, int targetSize) {
-        Deque<TickSnapshot> history = HISTORY.get(level.dimension());
-        if (history != null && history.size() > targetSize) {
+        Deque<WorldSnapshot> history = HISTORY.get(level.dimension());
+        if (history != null) {
             while (history.size() > targetSize) {
                 history.pollFirst();
             }
         }
     }
 
-    @SubscribeEvent
-    public static void onEntityLeave(EntityLeaveLevelEvent event) {
-        Entity entity = event.getEntity();
-        if (entity.level() instanceof ServerLevel level && !(entity instanceof Player)) {
-            if (isLevelRewinding(level)) return;
-            
-            if (entity instanceof LivingEntity || entity instanceof PrimedTnt || entity instanceof ItemEntity || entity instanceof Projectile) {
-                ResourceKey<Level> dim = level.dimension();
-                List<DeadEntitySnapshot> deadEntities = PENDING_DEAD_ENTITIES.computeIfAbsent(dim, k -> new ArrayList<>());
+    // ====== Entity tracking filter ======
+
+    /**
+     * Whether an entity should be tracked in world snapshots.
+     * Tracks all non-player entities except purely visual ones.
+     */
+    private static boolean shouldTrack(Entity entity) {
+        if (entity instanceof Player) return false;
+
+        // Track all major entity types
+        return entity instanceof LivingEntity
+            || entity instanceof ItemEntity
+            || entity instanceof ExperienceOrb
+            || entity instanceof Projectile
+            || entity instanceof PrimedTnt
+            || entity instanceof FallingBlockEntity
+            || entity instanceof Boat
+            || entity instanceof Minecart
+            || entity instanceof ArmorStand
+            || entity instanceof ItemFrame
+            || entity instanceof Painting;
+    }
+
+    /** Check if entity is within range of any player with rewind capability. */
+    private static boolean isInRangeOfRewindPlayer(Entity entity, ServerLevel level) {
+        for (ServerPlayer p : level.players()) {
+            var data = p.getData(com.example.speedforce.capability.ModAttachments.SPEED_PLAYER);
+            if (data.hasPower && data.speedLevel > 0) {
+                if (entity.distanceToSqr(p) <= ENTITY_TRACK_RANGE * ENTITY_TRACK_RANGE) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // ====== Snapshot recording ======
+
+    private static WorldSnapshot captureSnapshot(ServerLevel level) {
+        Map<UUID, EntitySnapshot> entities = new HashMap<>();
+
+        for (Entity entity : level.getAllEntities()) {
+            if (entity == null || !shouldTrack(entity)) continue;
+            if (!isInRangeOfRewindPlayer(entity, level)) continue;
+
+            try {
                 CompoundTag tag = new CompoundTag();
-                entity.saveWithoutId(tag);
-                deadEntities.add(new DeadEntitySnapshot(entity.getType(), tag, entity.position(), entity.getUUID()));
+                entity.save(tag);  // Full save with ID
+                entities.put(entity.getUUID(), new EntitySnapshot(
+                    entity.getUUID(),
+                    BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()),
+                    tag
+                ));
+            } catch (Exception e) {
+                LOGGER.warning("Failed to snapshot entity: uuid=" + entity.getUUID()
+                    + " type=" + entity.getType() + " - " + e.getMessage());
+            }
+        }
+
+        return new WorldSnapshot(level.getGameTime(), entities);
+    }
+
+    // ====== Entity recreation ======
+
+    private static Entity recreateEntity(ServerLevel level, EntitySnapshot snapshot) {
+        CompoundTag tag = snapshot.nbt().copy();
+
+        // Remove UUID from tag so we can set it after creation without conflict
+        tag.remove("UUID");
+
+        Entity restored = EntityType.loadEntityRecursive(
+            tag,
+            level,
+            java.util.function.Function.identity()
+        );
+
+        if (restored == null) {
+            LOGGER.warning("Failed to load rewind entity: uuid=" + snapshot.uuid()
+                + " type=" + snapshot.typeId());
+            return null;
+        }
+
+        restored.setUUID(snapshot.uuid());
+
+        if (!level.tryAddFreshEntityWithPassengers(restored)) {
+            LOGGER.warning("Failed to add rewind entity: uuid=" + snapshot.uuid()
+                + " type=" + snapshot.typeId());
+            return null;
+        }
+
+        return restored;
+    }
+
+    // ====== Per-tick logic ======
+
+    @SubscribeEvent
+    public static void onLevelTick(LevelTickEvent.Post event) {
+        if (!(event.getLevel() instanceof ServerLevel level)) return;
+        ResourceKey<Level> dim = level.dimension();
+        Deque<WorldSnapshot> history = HISTORY.computeIfAbsent(dim, k -> new ArrayDeque<>());
+
+        Optional<RewindSession> sessionOpt = RewindSession.get(dim);
+
+        if (sessionOpt.isPresent()) {
+            // ====== REWIND: UUID reconciliation ======
+            if (!history.isEmpty()) {
+                long cursor = sessionOpt.get().getCursorGameTime();
+
+                // Find the snapshot closest to (but not after) the cursor time
+                WorldSnapshot targetFrame = null;
+                for (WorldSnapshot snap : history) {
+                    if (snap.gameTime() <= cursor) {
+                        targetFrame = snap;
+                        break; // Newest-first, so first match is closest to cursor
+                    }
+                }
+
+                if (targetFrame != null) {
+                    reconcileEntities(level, targetFrame);
+                }
+            }
+        } else {
+            // ====== NOT REWINDING: Record snapshots ======
+            if (level.getGameTime() % SNAPSHOT_INTERVAL != 0) {
+                return;
+            }
+
+            // Only record if a player with rewind capability exists
+            boolean hasPlayerNeedingHistory = false;
+            for (ServerPlayer p : level.players()) {
+                var data = p.getData(com.example.speedforce.capability.ModAttachments.SPEED_PLAYER);
+                if (data.hasPower && data.speedLevel > 0) {
+                    hasPlayerNeedingHistory = true;
+                    break;
+                }
+            }
+
+            if (hasPlayerNeedingHistory) {
+                WorldSnapshot snapshot = captureSnapshot(level);
+                history.addFirst(snapshot);
+                if (history.size() > MAX_HISTORY_SNAPSHOTS) {
+                    history.removeLast();
+                }
             }
         }
     }
 
-    @SubscribeEvent
-    public static void onLevelTick(LevelTickEvent.Post event) {
-        if (event.getLevel() instanceof ServerLevel level) {
-            ResourceKey<Level> dim = level.dimension();
-            boolean rewinding = isLevelRewinding(level);
-            Deque<TickSnapshot> history = HISTORY.computeIfAbsent(dim, k -> new ArrayDeque<>());
-            
-            if (rewinding) {
-                if (!history.isEmpty()) {
-                    TickSnapshot snapshot = history.pollFirst();
-                    
-                    for (DeadEntitySnapshot des : snapshot.deadEntities()) {
-                        if (level.getEntity(des.uuid()) == null) { 
-                            Entity entity = des.type().create(level);
-                            if (entity != null) {
-                                entity.load(des.nbt());
-                                entity.setUUID(des.uuid());
-                                if (entity instanceof PrimedTnt tnt && tnt.getFuse() <= 0) {
-                                    tnt.setFuse(1);
-                                }
-                                level.addFreshEntity(entity);
-                            }
-                        }
-                    }
-                    
-                    Set<UUID> validUUIDs = new HashSet<>();
-                    for (DeadEntitySnapshot des : snapshot.deadEntities()) {
-                        validUUIDs.add(des.uuid());
-                    }
-                    
-                    for (EntitySnapshot es : snapshot.livingEntities()) {
-                        validUUIDs.add(es.uuid());
-                        Entity entity = level.getEntity(es.uuid());
-                        if (entity != null) {
-                            entity.teleportTo(es.pos().x, es.pos().y, es.pos().z);
-                            entity.setYRot(es.yRot());
-                            entity.setXRot(es.xRot());
-                            entity.setDeltaMovement(es.delta());
-                            entity.fallDistance = 0;
-                            
-                            if (entity instanceof PrimedTnt tnt) {
-                                tnt.setFuse(Math.max(1, es.fuse()));
-                            } else if (entity instanceof LivingEntity le) {
-                                le.setHealth(es.health());
-                            } else if (entity instanceof AbstractArrow arrow) {
-                                try {
-                                    ARROW_IN_GROUND_FIELD.setBoolean(arrow, false);
-                                } catch (IllegalAccessException ignored) {}
-                            }
-                        }
-                    }
-                    
-                    for (Entity entity : level.getAllEntities()) {
-                        if (entity != null && !(entity instanceof Player)) {
-                            if (entity instanceof LivingEntity || entity instanceof PrimedTnt || entity instanceof ItemEntity || entity instanceof Projectile) {
-                                if (!validUUIDs.contains(entity.getUUID())) {
-                                    entity.discard();
-                                }
-                            }
-                        }
-                    }
+    /**
+     * Core UUID reconciliation algorithm:
+     *   current - target → remove (entities created after target time)
+     *   target - current → create (entities that existed at target but are now gone)
+     *   current ∩ target → update position/state from target NBT
+     */
+    private static void reconcileEntities(ServerLevel level, WorldSnapshot targetFrame) {
+        Map<UUID, EntitySnapshot> targetEntities = targetFrame.entities();
+
+        // Collect current entities in range (exclude players)
+        Map<UUID, Entity> currentEntities = new HashMap<>();
+        for (Entity entity : level.getAllEntities()) {
+            if (entity != null && shouldTrack(entity) && !(entity instanceof Player)) {
+                currentEntities.put(entity.getUUID(), entity);
+            }
+        }
+
+        // === Remove: current has, target doesn't ===
+        for (Map.Entry<UUID, Entity> entry : currentEntities.entrySet()) {
+            if (!targetEntities.containsKey(entry.getKey())) {
+                entry.getValue().discard();
+            }
+        }
+
+        // === Create: target has, current doesn't ===
+        for (Map.Entry<UUID, EntitySnapshot> entry : targetEntities.entrySet()) {
+            if (!currentEntities.containsKey(entry.getKey())) {
+                recreateEntity(level, entry.getValue());
+            }
+        }
+
+        // === Update: both have ===
+        for (Map.Entry<UUID, EntitySnapshot> entry : targetEntities.entrySet()) {
+            Entity current = currentEntities.get(entry.getKey());
+            if (current == null) continue;
+
+            EntitySnapshot snap = entry.getValue();
+
+            // For short-lived entities (items, projectiles, TNT, falling blocks),
+            // recreate from full NBT is more reliable than field-by-field patching.
+            if (current instanceof ItemEntity || current instanceof Projectile
+                || current instanceof PrimedTnt || current instanceof FallingBlockEntity
+                || current instanceof ExperienceOrb) {
+                current.discard();
+                recreateEntity(level, snap);
+                continue;
+            }
+
+            // For persistent entities (mobs, armor stands, vehicles, etc.),
+            // update position and health. Full NBT restore is too disruptive.
+            CompoundTag tag = snap.nbt();
+            if (tag.contains("Pos")) {
+                net.minecraft.nbt.ListTag posList = tag.getList("Pos", 6);
+                current.teleportTo(posList.getDouble(0), posList.getDouble(1), posList.getDouble(2));
+            }
+            if (tag.contains("Rotation")) {
+                net.minecraft.nbt.ListTag rotList = tag.getList("Rotation", 5);
+                current.setYRot(rotList.getFloat(0));
+                current.setXRot(rotList.getFloat(1));
+            }
+            if (tag.contains("Motion")) {
+                net.minecraft.nbt.ListTag motionList = tag.getList("Motion", 6);
+                current.setDeltaMovement(
+                    motionList.getDouble(0),
+                    motionList.getDouble(1),
+                    motionList.getDouble(2)
+                );
+            }
+            current.fallDistance = 0;
+
+            if (current instanceof LivingEntity le) {
+                if (tag.contains("Health")) {
+                    le.setHealth(tag.getFloat("Health"));
                 }
-                PENDING_DEAD_ENTITIES.remove(dim);
-            } else {
-                List<DeadEntitySnapshot> currentDead = new ArrayList<>(PENDING_DEAD_ENTITIES.getOrDefault(dim, Collections.emptyList()));
-                List<EntitySnapshot> currentLiving = new ArrayList<>();
-                
-                for (Entity entity : level.getAllEntities()) {
-                    if (entity != null && !(entity instanceof Player)) {
-                        if (entity instanceof LivingEntity || entity instanceof PrimedTnt || entity instanceof ItemEntity || entity instanceof Projectile) {
-                            int fuse = entity instanceof PrimedTnt tnt ? tnt.getFuse() : 0;
-                            float health = entity instanceof LivingEntity le ? le.getHealth() : 0;
-                            currentLiving.add(new EntitySnapshot(entity.getUUID(), entity.position(), entity.getYRot(), entity.getXRot(), entity.getDeltaMovement(), fuse, health));
-                        }
-                    }
-                }
-                
-                history.addFirst(new TickSnapshot(currentDead, currentLiving));
-                if (history.size() > 200) {
-                    history.removeLast();
-                }
-                
-                PENDING_DEAD_ENTITIES.remove(dim);
             }
         }
     }

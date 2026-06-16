@@ -64,7 +64,7 @@
 
 ### 安装步骤
 1. 下载并安装 NeoForge 1.21.1
-2. 将 `speedforce-1.0.7v7.jar` 放入 `.minecraft/mods` 文件夹
+2. 将 `speedforce-1.0.8.jar` 放入 `.minecraft/mods` 文件夹
 3. 启动游戏
 
 ## 获取神速力
@@ -99,7 +99,7 @@ I = 铁锭, R = 红石块
 
 | 项目 | 信息 |
 |------|------|
-| **版本** | 1.0.7v7 |
+| **版本** | 1.0.8 |
 | **作者** | NLin |
 | **许可** | MIT License |
 | **Minecraft 版本** | 1.21.1 |
@@ -111,7 +111,7 @@ I = 铁锭, R = 红石块
 ./gradlew build
 ```
 
-输出文件位于 `build/libs/speedforce-1.0.7v7.jar`
+输出文件位于 `build/libs/speedforce-1.0.8.jar`
 
 ### 运行测试客户端
 ```bash
@@ -119,6 +119,19 @@ I = 铁锭, R = 红石块
 ```
 
 ## 更新日志
+
+### v1.0.8
+
+**时间回溯系统重构** — 从「位置传送」升级为真正的时间倒流。
+
+- **统一时间游标**：新增 `RewindSession`，让玩家、方块、实体三个回溯模块共享同一个 `cursorGameTime`，三者按相同时刻协同回退
+- **完整实体快照**：`WorldRewindHandler` 改为按 UUID 对账（current-target 删除 / target-current 创建 / 交集更新），死亡生物可正确复活
+- **完整 NBT 恢复**：实体快照存储完整 NBT，通过 `EntityType.loadEntityRecursive` 重建，不再需要 TNT/箭等特殊处理
+- **玩家库存倒流**：`PlayerSnapshot` 扩展为完整状态（背包、经验、饥饿值、速度），彻底修复挖矿后倒流的物品复制漏洞
+- **方块放置修复**：使用 `BlockSnapshot.getState()` 记录放置前的旧状态，倒流后正确恢复为空气
+- **TNT 爆炸修复**：在 `ExplosionEvent.Start` 预快照爆炸范围方块状态，倒流时不再产生二次爆炸，爆炸坑可正确恢复
+- **删除内存泄漏**：玩家断线时清理所有静态 Map 条目
+- **删除反射代码**：移除 `AbstractArrow.inGround` 反射，统一通过 NBT 重建处理
 
 ### v1.0.7v7
 - 新增时间残影系统（H 键召唤）

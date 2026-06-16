@@ -36,6 +36,14 @@ public class PowerTickHandler {
 
         SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
 
+        // If the player is rewinding, skip all speed effects to avoid interference
+        if (RewindHandler.isPlayerRewinding(player.getUUID())) {
+            removeSpeedModifier(player);
+            removeAttackModifier(player);
+            removeAttackSpeedModifier(player);
+            return;
+        }
+
         if (!data.hasPower) {
             removeSpeedModifier(player);
             removeAttackModifier(player);
