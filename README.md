@@ -64,7 +64,7 @@
 
 ### 安装步骤
 1. 下载并安装 NeoForge 1.21.1
-2. 将 `speedforce-1.0.8v2.jar` 放入 `.minecraft/mods` 文件夹
+2. 将 `speedforce-1.0.8v3.jar` 放入 `.minecraft/mods` 文件夹
 3. 启动游戏
 
 ## 获取神速力
@@ -99,7 +99,7 @@ I = 铁锭, R = 红石块
 
 | 项目 | 信息 |
 |------|------|
-| **版本** | 1.0.8v2 |
+| **版本** | 1.0.8v3 |
 | **作者** | NLin |
 | **许可** | MIT License |
 | **Minecraft 版本** | 1.21.1 |
@@ -111,7 +111,7 @@ I = 铁锭, R = 红石块
 ./gradlew build
 ```
 
-输出文件位于 `build/libs/speedforce-1.0.8v2.jar`
+输出文件位于 `build/libs/speedforce-1.0.8v3.jar`
 
 ### 运行测试客户端
 ```bash
@@ -119,6 +119,43 @@ I = 铁锭, R = 红石块
 ```
 
 ## 更新日志
+
+### v1.0.8v3
+
+**修复：实体行为状态（剪毛、驯服、坐下、年龄等）无法回溯**。
+
+#### 暴露的现象
+- 剪完羊毛后倒流，羊不会重新长出羊毛
+- 驯服狼后倒流，狼仍然有主人，未恢复野生
+
+#### 根因
+`current ∩ target` 分支只恢复位置/速度/血量，没有加载完整 NBT。这是结构性问题，不是个别物种 bug：
+- 羊的剪毛状态、染色由 `Sheep.setSheared()` / `setColor()` + 同步数据管理
+- 驯服状态由 `TamableAnimal.setOwnerUUID()` / `setTame()` / `setOrderedToSit()` + NBT 管理
+- 其他类似状态：年龄、繁殖冷却、装备、自定义名称、村民等级、蜜蜂花粉、狼项圈颜色、马匹鞍...
+
+旧轻量快照根本没有保存这些字段。
+
+#### 修复
+- **新增 `restoreExistingEntity()`**：对已存在实体调用 `entity.load(nbt)` 加载完整 NBT，行为状态全部由实体自身 `readAdditionalSaveData()` 处理
+- **新增 `restoreVanillaSpecialState()`** 适配层：作为保险，对 Sheep / TamableAnimal 调用公开 setter 确保 SynchedEntityData 正确同步到客户端
+- **修改 `sanitizeRestoredLivingEntity()`**：保留目标帧的 `HurtTime`，普通受伤倒流时红闪动画可正常回放（不再无条件清零）
+- **类型一致性检查**：UUID 相同但实体类型不同时跳过 NBT load，避免数据损坏
+- **去除 Passengers**：load 前移除 `Passengers` tag 防止递归创建乘客（坐骑关系暂留待后续迭代）
+- **load 失败回退**：load 抛异常时 discard 当前实体并通过完整 NBT 重建
+
+#### 现已支持回溯的状态
+- 羊剪毛 / 染色 / 颜色变化
+- 狼/猫/鹦鹉驯服与解除驯服、主人 UUID、坐下姿态、项圈颜色
+- 动物年龄（幼年/成年）、繁殖冷却、求偶状态
+- 生物装备（武器/盔甲）
+- 药水效果及持续时间
+- 自定义名称
+- 蜜蜂花粉状态
+- 狼愤怒状态
+- 猪鞍、马驯服与装备
+- 村民职业 / 等级 / 经验 / 交易数据
+- 模组实体自定义 NBT 状态
 
 ### v1.0.8v2
 

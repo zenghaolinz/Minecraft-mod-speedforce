@@ -7,9 +7,12 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.entity.animal.Sheep;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -21,6 +24,7 @@ import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.entity.decoration.Painting;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.level.Level;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -273,6 +277,10 @@ public class WorldRewindHandler {
             resetRevivedLivingEntity(living, snapshot.health());
         }
 
+        // Apply Vanilla state setters (Sheep wool, TamableAnimal owner, etc.)
+        // to ensure SynchedEntityData is properly populated.
+        restoreVanillaSpecialState(restored, tag);
+
         if (!level.tryAddFreshEntityWithPassengers(restored)) {
             LOGGER.warning("Failed to add rewind entity: uuid=" + snapshot.uuid()
                 + " type=" + snapshot.typeId());
@@ -386,9 +394,12 @@ public class WorldRewindHandler {
         }
 
         // === Update: both have ===
+        // Use full-NBT restore so behavior state (sheep wool, tamed status,
+        // sitting, age, breeding cooldown, equipment, custom name, ...) is
+        // preserved — not just position/health.
         for (Map.Entry<UUID, EntitySnapshot> entry : targetEntities.entrySet()) {
             Entity current = currentEntities.get(entry.getKey());
-            if (current == null) continue;
+            if (current == null || current.isRemoved()) continue;
 
             EntitySnapshot snap = entry.getValue();
 
@@ -398,41 +409,125 @@ public class WorldRewindHandler {
                 || current instanceof PrimedTnt || current instanceof FallingBlockEntity
                 || current instanceof ExperienceOrb) {
                 current.discard();
-                // Not resurrection — these aren't living entities
                 recreateEntity(level, snap, false);
                 continue;
             }
 
-            // For persistent entities (mobs, armor stands, vehicles, etc.),
-            // update position and health. Full NBT restore is too disruptive.
-            CompoundTag tag = snap.nbt();
-            if (tag.contains("Pos")) {
-                net.minecraft.nbt.ListTag posList = tag.getList("Pos", 6);
-                current.teleportTo(posList.getDouble(0), posList.getDouble(1), posList.getDouble(2));
-            }
-            if (tag.contains("Rotation")) {
-                net.minecraft.nbt.ListTag rotList = tag.getList("Rotation", 5);
-                current.setYRot(rotList.getFloat(0));
-                current.setXRot(rotList.getFloat(1));
-            }
-            if (tag.contains("Motion")) {
-                net.minecraft.nbt.ListTag motionList = tag.getList("Motion", 6);
-                current.setDeltaMovement(
-                    motionList.getDouble(0),
-                    motionList.getDouble(1),
-                    motionList.getDouble(2)
-                );
-            }
-            current.fallDistance = 0;
-
-            if (current instanceof LivingEntity le) {
-                if (tag.contains("Health")) {
-                    le.setHealth(tag.getFloat("Health"));
-                }
-                // NOTE: do NOT clear hurtTime/deathTime here — this is normal
-                // position rewind, not a resurrection. The original red-flash
-                // animation should be preserved during rewind playback.
+            // For persistent entities — load full NBT to restore behavior state.
+            boolean restored = restoreExistingEntity(level, current, snap);
+            if (!restored) {
+                // Fallback: discard and recreate from snapshot
+                current.discard();
+                boolean resurrection = snap.isLivingEntity() && snap.health() > 0.0F;
+                recreateEntity(level, snap, resurrection);
             }
         }
+    }
+
+    /**
+     * Restore a persistent entity by loading its full NBT.
+     * Returns false if the entity type doesn't match or load fails.
+     */
+    private static boolean restoreExistingEntity(ServerLevel level, Entity current, EntitySnapshot snapshot) {
+        // Type sanity check — same UUID with different type is unsafe to load
+        ResourceLocation currentTypeId = BuiltInRegistries.ENTITY_TYPE.getKey(current.getType());
+        if (!currentTypeId.equals(snapshot.typeId())) {
+            return false;
+        }
+
+        UUID originalUuid = current.getUUID();
+        CompoundTag tag = snapshot.nbt().copy();
+
+        // Strip passenger relationships — handle separately to avoid recursive
+        // load creating duplicate riders. (Vehicles/passengers can be handled
+        // in a future iteration; for now keep them where they are.)
+        tag.remove("Passengers");
+
+        try {
+            current.load(tag);
+            // load() may have changed the UUID; restore it to be safe
+            current.setUUID(originalUuid);
+            current.fallDistance = tag.contains("FallDistance") ? tag.getFloat("FallDistance") : 0;
+
+            // Apply Vanilla-specific setters as a safety layer for state that
+            // requires SynchedEntityData updates beyond what load() pushes.
+            restoreVanillaSpecialState(current, tag);
+
+            if (current instanceof LivingEntity living) {
+                sanitizeRestoredLivingEntity(living, tag);
+            }
+
+            current.refreshDimensions();
+            return true;
+        } catch (Exception exception) {
+            LOGGER.warning("Failed to restore existing entity: uuid=" + snapshot.uuid()
+                + " type=" + snapshot.typeId() + " - " + exception.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Vanilla state adapter — re-applies state via public setters that go
+     * through SynchedEntityData, ensuring the client sees the change.
+     * load() should already cover this, but some Vanilla data is double-tracked
+     * (NBT + SynchedEntityData) and the setters are the canonical way.
+     */
+    private static void restoreVanillaSpecialState(Entity entity, CompoundTag targetTag) {
+        if (entity instanceof Sheep sheep) {
+            sheep.setSheared(targetTag.getBoolean("Sheared"));
+            if (targetTag.contains("Color")) {
+                int colorId = targetTag.getByte("Color") & 15;
+                sheep.setColor(DyeColor.byId(colorId));
+            }
+        }
+        if (entity instanceof TamableAnimal animal) {
+            UUID ownerUuid = targetTag.hasUUID("Owner") ? targetTag.getUUID("Owner") : null;
+            boolean tame = ownerUuid != null;
+            boolean sitting = targetTag.getBoolean("Sitting");
+
+            animal.setOwnerUUID(ownerUuid);
+            animal.setTame(tame, true);
+            animal.setOrderedToSit(tame && sitting);
+            animal.setInSittingPose(tame && sitting);
+
+            if (!tame) {
+                // Re-clear in case setTame() left residual state
+                animal.setOwnerUUID(null);
+                animal.setOrderedToSit(false);
+                animal.setInSittingPose(false);
+            }
+        }
+    }
+
+    /**
+     * Sanitize a restored LivingEntity. This is called for ALL persistent restores,
+     * not just resurrections — but it preserves the target frame's hurt state so
+     * normal red-flash animations still play back during rewind.
+     */
+    private static void sanitizeRestoredLivingEntity(LivingEntity living, CompoundTag targetTag) {
+        float targetHealth = targetTag.contains("Health")
+            ? targetTag.getFloat("Health")
+            : living.getHealth();
+
+        // If target was already dead, leave the entity dead
+        if (targetHealth <= 0.0F) {
+            return;
+        }
+
+        LivingEntityAccessor accessor = (LivingEntityAccessor) living;
+        accessor.speedforce$setDead(false);
+        accessor.speedforce$setDeathTime(0);
+
+        // Preserve the target frame's hurt state — only clear if target was not hurt.
+        // This way the original red-flash animation can be replayed during rewind.
+        int targetHurtTime = targetTag.contains("HurtTime")
+            ? targetTag.getShort("HurtTime")
+            : 0;
+        accessor.speedforce$setHurtTime(targetHurtTime);
+        if (targetHurtTime == 0) {
+            accessor.speedforce$setHurtDuration(0);
+        }
+
+        living.setHealth(Mth.clamp(targetHealth, 1.0F, living.getMaxHealth()));
     }
 }
