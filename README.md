@@ -64,7 +64,7 @@
 
 ### 安装步骤
 1. 下载并安装 NeoForge 1.21.1
-2. 将 `speedforce-1.0.8.jar` 放入 `.minecraft/mods` 文件夹
+2. 将 `speedforce-1.0.8v1.jar` 放入 `.minecraft/mods` 文件夹
 3. 启动游戏
 
 ## 获取神速力
@@ -99,7 +99,7 @@ I = 铁锭, R = 红石块
 
 | 项目 | 信息 |
 |------|------|
-| **版本** | 1.0.8 |
+| **版本** | 1.0.8v1 |
 | **作者** | NLin |
 | **许可** | MIT License |
 | **Minecraft 版本** | 1.21.1 |
@@ -111,7 +111,7 @@ I = 铁锭, R = 红石块
 ./gradlew build
 ```
 
-输出文件位于 `build/libs/speedforce-1.0.8.jar`
+输出文件位于 `build/libs/speedforce-1.0.8v1.jar`
 
 ### 运行测试客户端
 ```bash
@@ -119,6 +119,16 @@ I = 铁锭, R = 红石块
 ```
 
 ## 更新日志
+
+### v1.0.8v1
+
+**修复死亡生物复活后保持倾倒/红闪状态**。
+
+- **不再使用尸体 NBT 复活**：新增 `LAST_ALIVE_SNAPSHOTS`，每次记录快照时只采集存活实体（过滤 `isDeadOrDying`/`Health<=0`），复活时使用最后一个存活快照作为来源
+- **复活时清理死亡 NBT**：`sanitizeRevivalNbt()` 将 `DeathTime`/`HurtTime` 归零、`Health` 至少为 1
+- **清理运行时死亡字段**：新增 `LivingEntityAccessor` Mixin，复活时通过 Accessor 重置 `dead`、`deathTime`、`hurtTime`、`hurtDuration`，确保客户端不会看到「血量恢复但仍然倒地」的状态
+- **正确顺序**：clone NBT → 清理死亡 NBT → 创建实体 → 重置运行时字段 → 加入世界（避免客户端先收到死亡状态）
+- **仅复活路径触发清理**：普通位置倒流不会清空 `hurtTime`，原本应该回放的红闪动画得以保留
 
 ### v1.0.8
 

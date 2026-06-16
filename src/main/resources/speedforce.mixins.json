@@ -6,7 +6,8 @@
   "refmap": "speedforce.refmap.json",
   "mixins": [
     "PlayerMixin",
-    "EntityMixin"
+    "EntityMixin",
+    "LivingEntityAccessor"
   ],
   "client": [],
   "injectors": {

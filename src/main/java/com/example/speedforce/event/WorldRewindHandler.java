@@ -1,5 +1,6 @@
 package com.example.speedforce.event;
 
+import com.example.speedforce.mixin.LivingEntityAccessor;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
@@ -21,7 +22,6 @@ import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.entity.decoration.Painting;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
@@ -38,8 +38,9 @@ import java.util.logging.Logger;
  *   - target has, current doesn't → recreate from NBT (revive dead mobs, etc.)
  *   - both have → update position/state
  *
- * No more DeadEntitySnapshot / PENDING_DEAD_ENTITIES.
- * No more TNT/arrow special-casing — full NBT handles everything.
+ * For revivals, we use the LAST_ALIVE snapshot (not the post-death corpse NBT)
+ * to ensure resurrection is from a healthy state, and we additionally clean
+ * runtime death/hurt animation fields via LivingEntityAccessor.
  */
 @EventBusSubscriber(modid = "speedforce")
 public class WorldRewindHandler {
@@ -52,7 +53,9 @@ public class WorldRewindHandler {
     public record EntitySnapshot(
         UUID uuid,
         ResourceLocation typeId,
-        CompoundTag nbt
+        CompoundTag nbt,
+        boolean isLivingEntity,
+        float health
     ) {}
 
     /**
@@ -64,6 +67,13 @@ public class WorldRewindHandler {
     ) {}
 
     private static final Map<ResourceKey<Level>, Deque<WorldSnapshot>> HISTORY = new HashMap<>();
+
+    /**
+     * Last-alive snapshot per entity UUID, per dimension.
+     * Used as the source for resurrection — we must NOT use the post-death
+     * corpse NBT (Health=0, DeathTime>0) when reviving.
+     */
+    private static final Map<ResourceKey<Level>, Map<UUID, EntitySnapshot>> LAST_ALIVE_SNAPSHOTS = new HashMap<>();
 
     private static final int SNAPSHOT_INTERVAL = 5;          // Record every 5 ticks
     private static final int MAX_HISTORY_SNAPSHOTS = 40;     // 40 * 5 = 200 ticks = 10s coverage
@@ -88,11 +98,36 @@ public class WorldRewindHandler {
     /**
      * Whether an entity should be tracked in world snapshots.
      * Tracks all non-player entities except purely visual ones.
+     * Excludes dead/dying living entities so we don't capture corpse states.
      */
-    private static boolean shouldTrack(Entity entity) {
+    private static boolean shouldCapture(Entity entity) {
         if (entity instanceof Player) return false;
 
-        // Track all major entity types
+        if (entity instanceof LivingEntity living) {
+            // Skip corpses — only capture living entities while they are alive.
+            // The LAST_ALIVE_SNAPSHOTS map will be used for resurrection.
+            if (!living.isAlive() || living.isDeadOrDying() || living.getHealth() <= 0.0F) {
+                return false;
+            }
+            return true;
+        }
+
+        // Non-living tracked types
+        return entity instanceof ItemEntity
+            || entity instanceof ExperienceOrb
+            || entity instanceof Projectile
+            || entity instanceof PrimedTnt
+            || entity instanceof FallingBlockEntity
+            || entity instanceof Boat
+            || entity instanceof Minecart
+            || entity instanceof ArmorStand
+            || entity instanceof ItemFrame
+            || entity instanceof Painting;
+    }
+
+    /** Whether an entity matches our tracked types (regardless of alive status). */
+    private static boolean isTrackedType(Entity entity) {
+        if (entity instanceof Player) return false;
         return entity instanceof LivingEntity
             || entity instanceof ItemEntity
             || entity instanceof ExperienceOrb
@@ -121,34 +156,99 @@ public class WorldRewindHandler {
 
     // ====== Snapshot recording ======
 
+    private static EntitySnapshot captureFullSnapshot(Entity entity) {
+        CompoundTag tag = new CompoundTag();
+        entity.save(tag);
+        boolean isLiving = entity instanceof LivingEntity;
+        float health = isLiving ? ((LivingEntity) entity).getHealth() : 0.0F;
+        return new EntitySnapshot(
+            entity.getUUID(),
+            BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()),
+            tag,
+            isLiving,
+            health
+        );
+    }
+
     private static WorldSnapshot captureSnapshot(ServerLevel level) {
         Map<UUID, EntitySnapshot> entities = new HashMap<>();
+        Map<UUID, EntitySnapshot> lastAliveForDim = LAST_ALIVE_SNAPSHOTS
+            .computeIfAbsent(level.dimension(), k -> new HashMap<>());
 
         for (Entity entity : level.getAllEntities()) {
-            if (entity == null || !shouldTrack(entity)) continue;
+            if (entity == null || !isTrackedType(entity)) continue;
             if (!isInRangeOfRewindPlayer(entity, level)) continue;
 
             try {
-                CompoundTag tag = new CompoundTag();
-                entity.save(tag);  // Full save with ID
-                entities.put(entity.getUUID(), new EntitySnapshot(
-                    entity.getUUID(),
-                    BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()),
-                    tag
-                ));
+                if (shouldCapture(entity)) {
+                    EntitySnapshot snap = captureFullSnapshot(entity);
+                    entities.put(entity.getUUID(), snap);
+
+                    // For living entities, also remember this as the last alive state
+                    if (entity instanceof LivingEntity) {
+                        lastAliveForDim.put(entity.getUUID(), snap);
+                    }
+                }
+                // else: corpse / dying — do not record this state
             } catch (Exception e) {
                 LOGGER.warning("Failed to snapshot entity: uuid=" + entity.getUUID()
                     + " type=" + entity.getType() + " - " + e.getMessage());
             }
         }
 
+        // Garbage-collect LAST_ALIVE_SNAPSHOTS entries for entities that haven't
+        // been seen for a while (entity removed from tracking range, etc.)
+        // Only keep entries whose UUID we still see in the current scan.
+        // To avoid expensive scans, we keep entries until the dimension reset.
         return new WorldSnapshot(level.getGameTime(), entities);
+    }
+
+    // ====== Death-state sanitization ======
+
+    /**
+     * Clean death/hurt state from NBT before loading. Used only on resurrection.
+     */
+    private static CompoundTag sanitizeRevivalNbt(CompoundTag original, float targetHealth) {
+        CompoundTag tag = original.copy();
+        tag.putShort("DeathTime", (short) 0);
+        tag.putShort("HurtTime", (short) 0);
+        tag.putFloat("Health", Math.max(1.0F, targetHealth));
+        return tag;
+    }
+
+    /**
+     * Clean runtime death/hurt state on a freshly loaded LivingEntity.
+     * Required because the NBT load only restores some fields; the rest
+     * (the `dead` flag, hurtDuration) remain at their default-loaded values
+     * but to be safe we clear them all.
+     */
+    private static void resetRevivedLivingEntity(LivingEntity living, float targetHealth) {
+        LivingEntityAccessor accessor = (LivingEntityAccessor) living;
+        accessor.speedforce$setDead(false);
+        accessor.speedforce$setDeathTime(0);
+        accessor.speedforce$setHurtTime(0);
+        accessor.speedforce$setHurtDuration(0);
+
+        float health = Math.max(1.0F, targetHealth);
+        health = Math.min(health, living.getMaxHealth());
+        living.setHealth(health);
+
+        living.fallDistance = 0;
     }
 
     // ====== Entity recreation ======
 
-    private static Entity recreateEntity(ServerLevel level, EntitySnapshot snapshot) {
+    /**
+     * Recreate an entity from its snapshot.
+     * @param resurrection true if this is a "revival" of a previously-dead entity —
+     *                     in that case we sanitize death/hurt state.
+     */
+    private static Entity recreateEntity(ServerLevel level, EntitySnapshot snapshot, boolean resurrection) {
         CompoundTag tag = snapshot.nbt().copy();
+
+        if (resurrection) {
+            tag = sanitizeRevivalNbt(tag, snapshot.health());
+        }
 
         // Remove UUID from tag so we can set it after creation without conflict
         tag.remove("UUID");
@@ -166,6 +266,12 @@ public class WorldRewindHandler {
         }
 
         restored.setUUID(snapshot.uuid());
+
+        // Reset runtime death/hurt fields BEFORE adding to world,
+        // so clients never see a partially-dead state.
+        if (restored instanceof LivingEntity living && resurrection) {
+            resetRevivedLivingEntity(living, snapshot.health());
+        }
 
         if (!level.tryAddFreshEntityWithPassengers(restored)) {
             LOGGER.warning("Failed to add rewind entity: uuid=" + snapshot.uuid()
@@ -238,11 +344,13 @@ public class WorldRewindHandler {
      */
     private static void reconcileEntities(ServerLevel level, WorldSnapshot targetFrame) {
         Map<UUID, EntitySnapshot> targetEntities = targetFrame.entities();
+        Map<UUID, EntitySnapshot> lastAliveForDim = LAST_ALIVE_SNAPSHOTS
+            .getOrDefault(level.dimension(), Collections.emptyMap());
 
         // Collect current entities in range (exclude players)
         Map<UUID, Entity> currentEntities = new HashMap<>();
         for (Entity entity : level.getAllEntities()) {
-            if (entity != null && shouldTrack(entity) && !(entity instanceof Player)) {
+            if (entity != null && isTrackedType(entity) && !(entity instanceof Player)) {
                 currentEntities.put(entity.getUUID(), entity);
             }
         }
@@ -254,10 +362,26 @@ public class WorldRewindHandler {
             }
         }
 
-        // === Create: target has, current doesn't ===
+        // === Create: target has, current doesn't (RESURRECTION PATH) ===
         for (Map.Entry<UUID, EntitySnapshot> entry : targetEntities.entrySet()) {
             if (!currentEntities.containsKey(entry.getKey())) {
-                recreateEntity(level, entry.getValue());
+                EntitySnapshot snap = entry.getValue();
+
+                // For living entities, prefer the last-alive snapshot if available
+                // (the one in the frame should already be alive, but as a safety net)
+                EntitySnapshot revivalSource = snap;
+                if (snap.isLivingEntity()) {
+                    EntitySnapshot lastAlive = lastAliveForDim.get(snap.uuid());
+                    if (lastAlive != null && lastAlive.health() > 0.0F) {
+                        revivalSource = lastAlive;
+                    }
+                }
+
+                // Mark as resurrection only if it's a living entity that needs revival
+                boolean resurrection = revivalSource.isLivingEntity()
+                    && revivalSource.health() > 0.0F;
+
+                recreateEntity(level, revivalSource, resurrection);
             }
         }
 
@@ -274,7 +398,8 @@ public class WorldRewindHandler {
                 || current instanceof PrimedTnt || current instanceof FallingBlockEntity
                 || current instanceof ExperienceOrb) {
                 current.discard();
-                recreateEntity(level, snap);
+                // Not resurrection — these aren't living entities
+                recreateEntity(level, snap, false);
                 continue;
             }
 
@@ -304,6 +429,9 @@ public class WorldRewindHandler {
                 if (tag.contains("Health")) {
                     le.setHealth(tag.getFloat("Health"));
                 }
+                // NOTE: do NOT clear hurtTime/deathTime here — this is normal
+                // position rewind, not a resurrection. The original red-flash
+                // animation should be preserved during rewind playback.
             }
         }
     }
