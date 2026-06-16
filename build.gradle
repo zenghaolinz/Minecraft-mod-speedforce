@@ -40,6 +40,31 @@ runs {
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
+// Template variable replacement for neoforge.mods.toml
+// Without this, version/author/etc. are hardcoded in the .toml and never sync with gradle.properties.
+tasks.named('processResources', ProcessResources).configure {
+    // Force UTF-8 for filtering/expand, otherwise Windows reads the toml as GBK
+    // and corrupts non-ASCII characters in the resource files themselves.
+    filteringCharset = 'UTF-8'
+
+    var replaceProperties = [
+        mod_id            : mod_id,
+        mod_name          : mod_name,
+        mod_license       : mod_license,
+        mod_version       : mod_version,
+        mod_authors       : mod_authors,
+        mod_description   : mod_description,
+        loader_version_range: loader_version_range,
+        neo_version       : neo_version,
+        minecraft_version : minecraft_version,
+    ]
+    inputs.properties replaceProperties
+
+    filesMatching(['META-INF/neoforge.mods.toml']) {
+        expand replaceProperties
+    }
+}
+
 dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
 }
