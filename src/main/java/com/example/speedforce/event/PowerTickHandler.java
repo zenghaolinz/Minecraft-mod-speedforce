@@ -5,6 +5,7 @@ import com.example.speedforce.capability.SpeedPlayerData;
 import com.example.speedforce.item.FlashSuitArmorItem;
 import com.example.speedforce.item.SuitType;
 import com.example.speedforce.network.ModNetworking;
+import com.example.speedforce.util.PhasingStateManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -49,14 +50,10 @@ public class PowerTickHandler {
             removeSpeedModifier(player);
             removeAttackModifier(player);
             removeAttackSpeedModifier(player);
-            if (!player.isSpectator()) {
-                player.noPhysics = false;
-                player.setNoGravity(false);
-            }
+            PhasingStateManager.clearLegacyPhysicsFlags(player);
             if (data.isBulletTimeActive || data.isPhasing) {
                 data.isBulletTimeActive = false;
-                data.isPhasing = false;
-                player.setData(ModAttachments.SPEED_PLAYER, data);
+                PhasingStateManager.setPhasing(player, data, false);
                 if (player instanceof ServerPlayer serverPlayer) {
                     ModNetworking.syncToClient(serverPlayer);
                 }
@@ -290,35 +287,23 @@ public class PowerTickHandler {
     private static void validatePhasingState(Player player, SpeedPlayerData data) {
         if (!data.hasPower || data.speedLevel <= 0) {
             if (data.isPhasing) {
-                data.isPhasing = false;
-                player.setData(ModAttachments.SPEED_PLAYER, data);
+                PhasingStateManager.setPhasing(player, data, false);
                 if (player instanceof ServerPlayer serverPlayer) {
                     ModNetworking.syncToClient(serverPlayer);
                 }
             }
 
-            if (!player.isSpectator()) {
-                // Clean up legacy noPhysics/noGravity flags from old versions.
-                player.noPhysics = false;
-                player.setNoGravity(false);
-            }
+            // Clean legacy noPhysics/noGravity only when ability state is invalid.
+            PhasingStateManager.clearLegacyPhysicsFlags(player);
+        } else {
+            // Keep runtime cache aligned if data was loaded from disk or changed elsewhere.
+            PhasingStateManager.syncCacheFromData(player);
         }
     }
 
     private static void handlePhasing(Player player, SpeedPlayerData data) {
-        /*
-         * Phasing no longer relies on noPhysics or noGravity.
-         * EntityMixin selectively bypasses horizontal (X/Z) collision while
-         * keeping vanilla vertical (Y) collision for floors and ceilings.
-         *
-         * This method only cleans legacy flags from older implementations and
-         * optionally prevents fall damage while phasing.
-         */
-        if (!player.isSpectator()) {
-            player.noPhysics = false;
-            player.setNoGravity(false);
-        }
-
+        // Phasing no longer relies on noPhysics/noGravity.
+        // EntityMixin and the runtime cache handle collision behavior.
         if (data.isPhasing) {
             player.fallDistance = 0.0F;
         }

@@ -6,6 +6,7 @@ import com.example.speedforce.capability.SpeedPlayerData;
 import com.example.speedforce.client.ClientSpeedData;
 import com.example.speedforce.item.FlashSuitArmorItem;
 import com.example.speedforce.item.SuitType;
+import com.example.speedforce.util.PhasingStateManager;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -31,11 +32,12 @@ public class ModNetworking {
                     if (data.speedLevel > 0) {
                         data.speedLevel = 0;
                         data.isBulletTimeActive = false;
-                        data.isPhasing = false;
+                        PhasingStateManager.setPhasing(player, data, false);
+                        player.connection.resetPosition();
                     } else {
                         data.speedLevel = 1;
+                        player.setData(ModAttachments.SPEED_PLAYER, data);
                     }
-                    player.setData(ModAttachments.SPEED_PLAYER, data);
                     syncToClient(player);
                 }
             });
@@ -96,9 +98,13 @@ public class ModNetworking {
 
                 if (context.player() != null) {
                     context.player().setData(ModAttachments.SPEED_PLAYER,
-                        new SpeedPlayerData(payload.hasPower(), payload.speedLevel(), payload.isBulletTimeActive(), payload.isPhasing(), 
+                        new SpeedPlayerData(payload.hasPower(), payload.speedLevel(), payload.isBulletTimeActive(), payload.isPhasing(),
                                             payload.trailColorR(), payload.trailColorG(), payload.trailColorB(),
                                             payload.customTrailColorR(), payload.customTrailColorG(), payload.customTrailColorB())
+                    );
+                    PhasingStateManager.updateCache(
+                        context.player(),
+                        payload.hasPower() && payload.speedLevel() > 0 && payload.isPhasing() && !context.player().isSpectator()
                     );
                 }
             });
@@ -183,9 +189,9 @@ public class ModNetworking {
             return;
         }
 
+        boolean newState;
         if (!data.isPhasing) {
-            // Enable phasing
-            data.isPhasing = true;
+            newState = true;
         } else {
             // Before disabling, make sure the player is not inside solid blocks.
             // Otherwise vanilla collision would immediately suffocate/push them.
@@ -197,10 +203,10 @@ public class ModNetworking {
                 );
                 return;
             }
-            data.isPhasing = false;
+            newState = false;
         }
 
-        player.setData(ModAttachments.SPEED_PLAYER, data);
+        PhasingStateManager.setPhasing(player, data, newState);
         // Reset server movement baseline to avoid the first phasing tick being
         // corrected against old lastGood/firstGood coordinates.
         player.connection.resetPosition();
@@ -209,15 +215,11 @@ public class ModNetworking {
 
     private static void forceDisablePhasing(ServerPlayer player, SpeedPlayerData data) {
         if (data.isPhasing) {
-            data.isPhasing = false;
-            player.setData(ModAttachments.SPEED_PLAYER, data);
+            PhasingStateManager.setPhasing(player, data, false);
             player.connection.resetPosition();
             syncToClient(player);
         }
-        if (!player.isSpectator()) {
-            player.noPhysics = false;
-            player.setNoGravity(false);
-        }
+        PhasingStateManager.clearLegacyPhysicsFlags(player);
     }
 
     public static void syncToClient(ServerPlayer player) {

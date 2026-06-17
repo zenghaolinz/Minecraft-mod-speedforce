@@ -64,7 +64,7 @@
 
 ### 安装步骤
 1. 下载并安装 NeoForge 1.21.1
-2. 将 `speedforce-1.0.8v6.jar` 放入 `.minecraft/mods` 文件夹
+2. 将 `speedforce-1.0.8v7.jar` 放入 `.minecraft/mods` 文件夹
 3. 启动游戏
 
 ## 获取神速力
@@ -99,7 +99,7 @@ I = 铁锭, R = 红石块
 
 | 项目 | 信息 |
 |------|------|
-| **版本** | 1.0.8v6 |
+| **版本** | 1.0.8v7 |
 | **作者** | NLin |
 | **许可** | MIT License |
 | **Minecraft 版本** | 1.21.1 |
@@ -111,7 +111,7 @@ I = 铁锭, R = 红石块
 ./gradlew build
 ```
 
-输出文件位于 `build/libs/speedforce-1.0.8v6.jar`
+输出文件位于 `build/libs/speedforce-1.0.8v7.jar`
 
 ### 运行测试客户端
 ```bash
@@ -119,6 +119,20 @@ I = 铁锭, R = 红石块
 ```
 
 ## 更新日志
+
+### v1.0.8v7
+
+**优化穿墙热路径性能，降低开启穿墙时的掉帧**。
+
+- **运行时布尔缓存**：新增 `PhasingStateAccess` + `PhasingStateManager`，穿墙碰撞热路径不再反复读取 Attachment
+- **PlayerMixin 缓存状态**：`Player` 持有 `speedforce$phasingActive`，客户端/服务端 Mixin 都只读这个 boolean
+- **EntityMixin 热路径优化**：
+  - 非玩家实体只做一次接口判断即返回
+  - 无垂直位移时直接返回 X/Z，不调用 `collideBoundingBox()`
+  - 空实体碰撞列表 `List.of()` 只创建一次
+- **LocalPlayerMixin / ServerGamePacketListenerImplMixin 改为读取缓存**，不再访问 `SpeedPlayerData` Attachment
+- **移除每 tick 物理状态写入**：不再每 tick 调用 `noPhysics=false` / `setNoGravity(false)`，只在登录、重生、失去能力、切换穿墙等状态变化时清理旧标志
+- 确认无移动路径调试日志、无 `getEntityCollisions()` 扫描
 
 ### v1.0.8v6
 

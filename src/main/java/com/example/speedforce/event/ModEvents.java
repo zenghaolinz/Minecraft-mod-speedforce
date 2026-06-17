@@ -3,6 +3,7 @@ package com.example.speedforce.event;
 import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.capability.SpeedPlayerData;
 import com.example.speedforce.network.ModNetworking;
+import com.example.speedforce.util.PhasingStateManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
@@ -32,7 +33,8 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            clearLegacyPhysicsFlags(serverPlayer);
+            PhasingStateManager.clearLegacyPhysicsFlags(serverPlayer);
+            PhasingStateManager.syncCacheFromData(serverPlayer);
             ModNetworking.syncToClient(serverPlayer);
         }
     }
@@ -45,7 +47,8 @@ public class ModEvents {
             data.isPhasing = false;
             data.isBulletTimeActive = false;
             newPlayer.setData(ModAttachments.SPEED_PLAYER, data);
-            clearLegacyPhysicsFlags(newPlayer);
+            PhasingStateManager.clearLegacyPhysicsFlags(newPlayer);
+            PhasingStateManager.syncCacheFromData(newPlayer);
             ModNetworking.syncToClient(newPlayer);
         }
     }
@@ -57,7 +60,8 @@ public class ModEvents {
             data.isPhasing = false;
             data.isBulletTimeActive = false;
             serverPlayer.setData(ModAttachments.SPEED_PLAYER, data);
-            clearLegacyPhysicsFlags(serverPlayer);
+            PhasingStateManager.clearLegacyPhysicsFlags(serverPlayer);
+            PhasingStateManager.syncCacheFromData(serverPlayer);
             ModNetworking.syncToClient(serverPlayer);
         }
     }
@@ -65,14 +69,9 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerChangeDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            clearLegacyPhysicsFlags(serverPlayer);
+            PhasingStateManager.clearLegacyPhysicsFlags(serverPlayer);
+            PhasingStateManager.syncCacheFromData(serverPlayer);
             ModNetworking.syncToClient(serverPlayer);
         }
-    }
-
-    private static void clearLegacyPhysicsFlags(Player player) {
-        if (player.isSpectator()) return;
-        player.noPhysics = false;
-        player.setNoGravity(false);
     }
 }

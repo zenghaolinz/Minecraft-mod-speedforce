@@ -4,6 +4,7 @@ import com.example.speedforce.SpeedForceMod;
 import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.network.ModNetworking;
 import com.example.speedforce.network.RewindStatePayload;
+import com.example.speedforce.util.PhasingStateManager;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
@@ -112,16 +113,12 @@ public class RewindHandler {
             }
 
             // Safe position: exit phasing before rewind starts.
-            data.isPhasing = false;
-            player.setData(ModAttachments.SPEED_PLAYER, data);
+            PhasingStateManager.setPhasing(player, data, false);
             ModNetworking.syncToClient(player);
         }
 
         // Clean legacy physics flags from older phasing implementation.
-        if (!player.isSpectator()) {
-            player.noPhysics = false;
-            player.setNoGravity(false);
-        }
+        PhasingStateManager.clearLegacyPhysicsFlags(player);
 
         ResourceKey<Level> dimension = player.level().dimension();
 

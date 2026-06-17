@@ -1,23 +1,23 @@
 package com.example.speedforce.mixin;
 
-import com.example.speedforce.capability.ModAttachments;
-import com.example.speedforce.capability.SpeedPlayerData;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.LivingEntity;
+import com.example.speedforce.util.PhasingStateAccess;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(Player.class)
-public abstract class PlayerMixin extends LivingEntity {
+public abstract class PlayerMixin implements PhasingStateAccess {
 
-    protected PlayerMixin(EntityType<? extends LivingEntity> entityType, Level level) {
-        super(entityType, level);
+    @Unique
+    private boolean speedforce$phasingActive;
+
+    @Override
+    public boolean speedforce$isPhasingActive() {
+        return this.speedforce$phasingActive;
+    }
+
+    @Override
+    public void speedforce$setPhasingActive(boolean active) {
+        this.speedforce$phasingActive = active;
     }
 }

@@ -1,61 +1,57 @@
 package com.example.speedforce.mixin;
 
-import com.example.speedforce.capability.ModAttachments;
-import com.example.speedforce.capability.SpeedPlayerData;
+import com.example.speedforce.util.PhasingStateAccess;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.Collections;
+import java.util.List;
 
 @Mixin(Entity.class)
 public abstract class EntityMixin {
+
+    @Unique
+    private static final List<VoxelShape> SPEEDFORCE$NO_ENTITY_COLLISIONS = List.of();
+
+    @Unique
+    private static final double SPEEDFORCE$MOVEMENT_EPSILON = 1.0E-7D;
 
     @Inject(
         method = "collide(Lnet/minecraft/world/phys/Vec3;)Lnet/minecraft/world/phys/Vec3;",
         at = @At("HEAD"),
         cancellable = true
     )
-    private void speedforce$applyPhasingCollision(Vec3 requestedMovement, CallbackInfoReturnable<Vec3> cir) {
+    private void speedforce$phaseHorizontalCollision(Vec3 movement, CallbackInfoReturnable<Vec3> cir) {
         Entity self = (Entity) (Object) this;
 
-        if (!(self instanceof Player player)) return;
+        // Hot path: only PlayerMixin implements PhasingStateAccess.
+        // Non-player entities return after a cheap interface check.
+        if (!(self instanceof PhasingStateAccess access) || !access.speedforce$isPhasingActive()) {
+            return;
+        }
 
-        SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
-        if (!data.isPhasing) return;
-        if (!data.hasPower || data.speedLevel <= 0) return;
-        if (player.isSpectator()) return;
+        double verticalY = movement.y;
 
-        /*
-         * Phasing only ignores horizontal block collision.
-         *
-         * X/Z movement is left untouched so players can pass through walls.
-         * Y movement is resolved by vanilla collision so floors and ceilings
-         * still support/block the player.
-         *
-         * Do NOT use noPhysics/noGravity: those bypass the whole movement stack
-         * and cause sinking, jitter, and broken ground-state prediction.
-         */
-        Vec3 verticalMovement = new Vec3(0.0D, requestedMovement.y, 0.0D);
+        // No vertical movement: avoid collideBoundingBox() entirely.
+        if (Math.abs(verticalY) < SPEEDFORCE$MOVEMENT_EPSILON) {
+            cir.setReturnValue(new Vec3(movement.x, 0.0D, movement.z));
+            return;
+        }
 
+        Vec3 verticalMovement = new Vec3(0.0D, verticalY, 0.0D);
         Vec3 resolvedVertical = Entity.collideBoundingBox(
             self,
             verticalMovement,
             self.getBoundingBox(),
             self.level(),
-            // Only verify vertical block/world collision. Avoid auxiliary entity
-            // collisions here while validating horizontal phasing behavior.
-            Collections.emptyList()
+            SPEEDFORCE$NO_ENTITY_COLLISIONS
         );
 
-        cir.setReturnValue(new Vec3(
-            requestedMovement.x,
-            resolvedVertical.y,
-            requestedMovement.z
-        ));
+        cir.setReturnValue(new Vec3(movement.x, resolvedVertical.y, movement.z));
     }
 }
