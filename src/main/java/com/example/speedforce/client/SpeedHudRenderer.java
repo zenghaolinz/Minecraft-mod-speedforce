@@ -42,26 +42,27 @@ public class SpeedHudRenderer {
         int maxLevel = hasFullSuit ? 14 : 10;
 
         if (ClientSpeedData.showHelp) {
-            graphics.fill(8, 8, 140, 120, 0x80000000);
+            graphics.fill(8, 8, 140, 132, 0x80000000);
             graphics.drawString(mc.font, "C - 开关超能力", 12, 12, 0xFFFFFF);
             graphics.drawString(mc.font, "X - 加速 / Z - 减速", 12, 24, 0xFFFFFF);
             graphics.drawString(mc.font, "B - 子弹时间", 12, 36, 0xFFFFFF);
-            graphics.drawString(mc.font, "N - 拖尾颜色", 12, 48, 0xFFFFFF);
-            graphics.drawString(mc.font, "R - 时间回溯", 12, 60, 0xFFFFFF);
-            graphics.drawString(mc.font, "G - 切换箭袋箭矢", 12, 72, 0xFFFFFF);
-            graphics.drawString(mc.font, "H - 时间残影(速度4+)", 12, 84, 0xFFFFFF);
-            graphics.drawString(mc.font, "U - 收起帮助", 12, 96, 0xAAAAAA);
-            
-            String statusText = ClientSpeedData.speedLevel > 0 ? 
+            graphics.drawString(mc.font, "V - 穿墙模式", 12, 48, 0xFFFFFF);
+            graphics.drawString(mc.font, "N - 拖尾颜色", 12, 60, 0xFFFFFF);
+            graphics.drawString(mc.font, "R - 时间回溯", 12, 72, 0xFFFFFF);
+            graphics.drawString(mc.font, "G - 切换箭袋箭矢", 12, 84, 0xFFFFFF);
+            graphics.drawString(mc.font, "H - 时间残影(速度4+)", 12, 96, 0xFFFFFF);
+            graphics.drawString(mc.font, "U - 收起帮助", 12, 108, 0xAAAAAA);
+
+            String statusText = ClientSpeedData.speedLevel > 0 ?
                 "状态: Lv." + ClientSpeedData.speedLevel + "/" + maxLevel : "状态: 未启用";
             int statusColor = ClientSpeedData.speedLevel > 0 ? 0x55FF55 : 0xFF5555;
-            graphics.drawString(mc.font, statusText, 12, 108, statusColor);
+            graphics.drawString(mc.font, statusText, 12, 120, statusColor);
 
             int colorBoxX = 115;
-            graphics.fill(colorBoxX, 96, colorBoxX + 20, 116, 0xFF000000);
-            int trailColor = (0xFF << 24) | (ClientSpeedData.trailColorR << 16) | 
+            graphics.fill(colorBoxX, 108, colorBoxX + 20, 128, 0xFF000000);
+            int trailColor = (0xFF << 24) | (ClientSpeedData.trailColorR << 16) |
                              (ClientSpeedData.trailColorG << 8) | ClientSpeedData.trailColorB;
-            graphics.fill(colorBoxX + 1, 97, colorBoxX + 19, 115, trailColor);
+            graphics.fill(colorBoxX + 1, 109, colorBoxX + 19, 127, trailColor);
         } else {
             graphics.fill(8, 8, 100, 24, 0x80000000);
             graphics.drawString(mc.font, "[U] 帮助", 12, 12, 0xAAAAAA);
