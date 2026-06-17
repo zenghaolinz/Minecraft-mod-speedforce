@@ -64,7 +64,7 @@
 
 ### 安装步骤
 1. 下载并安装 NeoForge 1.21.1
-2. 将 `speedforce-1.0.8v4.jar` 放入 `.minecraft/mods` 文件夹
+2. 将 `speedforce-1.0.8v6.jar` 放入 `.minecraft/mods` 文件夹
 3. 启动游戏
 
 ## 获取神速力
@@ -99,7 +99,7 @@ I = 铁锭, R = 红石块
 
 | 项目 | 信息 |
 |------|------|
-| **版本** | 1.0.8v4 |
+| **版本** | 1.0.8v6 |
 | **作者** | NLin |
 | **许可** | MIT License |
 | **Minecraft 版本** | 1.21.1 |
@@ -111,7 +111,7 @@ I = 铁锭, R = 红石块
 ./gradlew build
 ```
 
-输出文件位于 `build/libs/speedforce-1.0.8v4.jar`
+输出文件位于 `build/libs/speedforce-1.0.8v6.jar`
 
 ### 运行测试客户端
 ```bash
@@ -119,6 +119,24 @@ I = 铁锭, R = 红石块
 ```
 
 ## 更新日志
+
+### v1.0.8v6
+
+**修复服务端移动包校验导致的穿墙回弹**。
+
+- **服务端回滚拦截**：新增 `ServerGamePacketListenerImplMixin`，穿墙时让 `isPlayerCollidingWithAnythingNew()` 返回 false，避免服务端把进入方块判定为非法移动并拉回
+- **完整链路生效**：客户端碰撞放行、客户端取消推出方块、服务端碰撞放行、服务端移动校验放行四层同时覆盖
+- **切换时重置移动基准**：穿墙开关后调用 `player.connection.resetPosition()`，避免第一帧被旧 lastGood/firstGood 坐标纠正
+- 保留实体实际 Y 轴碰撞：地板/天花板仍由 `EntityMixin` 的垂直碰撞解析负责
+
+### v1.0.8v5
+
+**修复穿墙客户端预测与墙内推挤问题**。
+
+- **客户端 push-out 修复**：新增 `LocalPlayerMixin`，穿墙时取消 `LocalPlayer.moveTowardsClosestSpace()`，避免客户端把玩家主动推出方块导致墙前阻力/抖动
+- **碰撞计算简化**：`EntityMixin` 的垂直碰撞辅助计算改用 `Collections.emptyList()`，先只验证方块垂直碰撞，避免实体碰撞形状干扰水平穿墙
+- **墙内伤害免疫**：新增 `PhasingEventHandler`，穿墙时取消 `DamageTypes.IN_WALL` 窒息伤害；进入方块内部是穿墙的正常状态
+- **服务端与客户端一致**：继续依赖 `SyncSpeedDataPayload` 同步本地玩家 Attachment，确保客户端 Mixin 和服务端 Mixin 读到相同的 `isPhasing`
 
 ### v1.0.8v4
 

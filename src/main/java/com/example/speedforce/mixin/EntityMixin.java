@@ -4,15 +4,13 @@ import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.capability.SpeedPlayerData;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.List;
+import java.util.Collections;
 
 @Mixin(Entity.class)
 public abstract class EntityMixin {
@@ -43,18 +41,15 @@ public abstract class EntityMixin {
          * and cause sinking, jitter, and broken ground-state prediction.
          */
         Vec3 verticalMovement = new Vec3(0.0D, requestedMovement.y, 0.0D);
-        AABB verticalSearchBox = self.getBoundingBox().expandTowards(verticalMovement);
-
-        // Include entity collisions for vertical support (boats, minecarts, etc.).
-        // Since movement only has Y, these won't block horizontal phasing.
-        List<VoxelShape> entityCollisions = self.level().getEntityCollisions(self, verticalSearchBox);
 
         Vec3 resolvedVertical = Entity.collideBoundingBox(
             self,
             verticalMovement,
             self.getBoundingBox(),
             self.level(),
-            entityCollisions
+            // Only verify vertical block/world collision. Avoid auxiliary entity
+            // collisions here while validating horizontal phasing behavior.
+            Collections.emptyList()
         );
 
         cir.setReturnValue(new Vec3(

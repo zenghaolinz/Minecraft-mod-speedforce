@@ -201,6 +201,9 @@ public class ModNetworking {
         }
 
         player.setData(ModAttachments.SPEED_PLAYER, data);
+        // Reset server movement baseline to avoid the first phasing tick being
+        // corrected against old lastGood/firstGood coordinates.
+        player.connection.resetPosition();
         syncToClient(player);
     }
 
@@ -208,6 +211,7 @@ public class ModNetworking {
         if (data.isPhasing) {
             data.isPhasing = false;
             player.setData(ModAttachments.SPEED_PLAYER, data);
+            player.connection.resetPosition();
             syncToClient(player);
         }
         if (!player.isSpectator()) {
