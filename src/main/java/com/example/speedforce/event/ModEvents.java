@@ -32,13 +32,32 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            clearLegacyPhysicsFlags(serverPlayer);
             ModNetworking.syncToClient(serverPlayer);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onPlayerClone(PlayerEvent.Clone event) {
+        if (event.getEntity() instanceof ServerPlayer newPlayer) {
+            SpeedPlayerData data = newPlayer.getData(ModAttachments.SPEED_PLAYER);
+            // Instant abilities should not persist through death/clone.
+            data.isPhasing = false;
+            data.isBulletTimeActive = false;
+            newPlayer.setData(ModAttachments.SPEED_PLAYER, data);
+            clearLegacyPhysicsFlags(newPlayer);
+            ModNetworking.syncToClient(newPlayer);
         }
     }
 
     @SubscribeEvent
     public static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            SpeedPlayerData data = serverPlayer.getData(ModAttachments.SPEED_PLAYER);
+            data.isPhasing = false;
+            data.isBulletTimeActive = false;
+            serverPlayer.setData(ModAttachments.SPEED_PLAYER, data);
+            clearLegacyPhysicsFlags(serverPlayer);
             ModNetworking.syncToClient(serverPlayer);
         }
     }
@@ -46,7 +65,14 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerChangeDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            clearLegacyPhysicsFlags(serverPlayer);
             ModNetworking.syncToClient(serverPlayer);
         }
+    }
+
+    private static void clearLegacyPhysicsFlags(Player player) {
+        if (player.isSpectator()) return;
+        player.noPhysics = false;
+        player.setNoGravity(false);
     }
 }

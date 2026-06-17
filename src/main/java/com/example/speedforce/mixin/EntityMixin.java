@@ -3,34 +3,64 @@ package com.example.speedforce.mixin;
 import com.example.speedforce.capability.ModAttachments;
 import com.example.speedforce.capability.SpeedPlayerData;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.List;
+
 @Mixin(Entity.class)
 public abstract class EntityMixin {
 
-    @Shadow
-    public boolean noPhysics;
-
-    @Shadow
-    public Level level;
-
-    @Inject(method = "collide", at = @At("HEAD"), cancellable = true)
-    private void onCollide(Vec3 movement, CallbackInfoReturnable<Vec3> cir) {
+    @Inject(
+        method = "collide(Lnet/minecraft/world/phys/Vec3;)Lnet/minecraft/world/phys/Vec3;",
+        at = @At("HEAD"),
+        cancellable = true
+    )
+    private void speedforce$applyPhasingCollision(Vec3 requestedMovement, CallbackInfoReturnable<Vec3> cir) {
         Entity self = (Entity) (Object) this;
-        if (self instanceof Player player) {
-            SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
-            if (data.isPhasing) {
-                cir.setReturnValue(movement);
-            }
-        }
+
+        if (!(self instanceof Player player)) return;
+
+        SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
+        if (!data.isPhasing) return;
+        if (!data.hasPower || data.speedLevel <= 0) return;
+        if (player.isSpectator()) return;
+
+        /*
+         * Phasing only ignores horizontal block collision.
+         *
+         * X/Z movement is left untouched so players can pass through walls.
+         * Y movement is resolved by vanilla collision so floors and ceilings
+         * still support/block the player.
+         *
+         * Do NOT use noPhysics/noGravity: those bypass the whole movement stack
+         * and cause sinking, jitter, and broken ground-state prediction.
+         */
+        Vec3 verticalMovement = new Vec3(0.0D, requestedMovement.y, 0.0D);
+        AABB verticalSearchBox = self.getBoundingBox().expandTowards(verticalMovement);
+
+        // Include entity collisions for vertical support (boats, minecarts, etc.).
+        // Since movement only has Y, these won't block horizontal phasing.
+        List<VoxelShape> entityCollisions = self.level().getEntityCollisions(self, verticalSearchBox);
+
+        Vec3 resolvedVertical = Entity.collideBoundingBox(
+            self,
+            verticalMovement,
+            self.getBoundingBox(),
+            self.level(),
+            entityCollisions
+        );
+
+        cir.setReturnValue(new Vec3(
+            requestedMovement.x,
+            resolvedVertical.y,
+            requestedMovement.z
+        ));
     }
 }

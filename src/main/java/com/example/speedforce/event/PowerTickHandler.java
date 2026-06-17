@@ -35,6 +35,7 @@ public class PowerTickHandler {
         if (player.level().isClientSide) return;
 
         SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
+        validatePhasingState(player, data);
 
         // If the player is rewinding, skip all speed effects to avoid interference
         if (RewindHandler.isPlayerRewinding(player.getUUID())) {
@@ -286,14 +287,40 @@ public class PowerTickHandler {
         }
     }
 
+    private static void validatePhasingState(Player player, SpeedPlayerData data) {
+        if (!data.hasPower || data.speedLevel <= 0) {
+            if (data.isPhasing) {
+                data.isPhasing = false;
+                player.setData(ModAttachments.SPEED_PLAYER, data);
+                if (player instanceof ServerPlayer serverPlayer) {
+                    ModNetworking.syncToClient(serverPlayer);
+                }
+            }
+
+            if (!player.isSpectator()) {
+                // Clean up legacy noPhysics/noGravity flags from old versions.
+                player.noPhysics = false;
+                player.setNoGravity(false);
+            }
+        }
+    }
+
     private static void handlePhasing(Player player, SpeedPlayerData data) {
-        if (data.isPhasing) {
-            player.noPhysics = true;
-            player.setNoGravity(true);
-            player.fallDistance = 0.0F;
-        } else if (!player.isSpectator()) {
+        /*
+         * Phasing no longer relies on noPhysics or noGravity.
+         * EntityMixin selectively bypasses horizontal (X/Z) collision while
+         * keeping vanilla vertical (Y) collision for floors and ceilings.
+         *
+         * This method only cleans legacy flags from older implementations and
+         * optionally prevents fall damage while phasing.
+         */
+        if (!player.isSpectator()) {
             player.noPhysics = false;
             player.setNoGravity(false);
+        }
+
+        if (data.isPhasing) {
+            player.fallDistance = 0.0F;
         }
     }
 }

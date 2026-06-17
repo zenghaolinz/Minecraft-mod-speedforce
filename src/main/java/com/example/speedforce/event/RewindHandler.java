@@ -2,9 +2,11 @@ package com.example.speedforce.event;
 
 import com.example.speedforce.SpeedForceMod;
 import com.example.speedforce.capability.ModAttachments;
+import com.example.speedforce.network.ModNetworking;
 import com.example.speedforce.network.RewindStatePayload;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundSetCarriedItemPacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
@@ -96,6 +98,30 @@ public class RewindHandler {
         var data = player.getData(ModAttachments.SPEED_PLAYER);
 
         if (!data.hasPower || data.speedLevel <= 0) return;
+
+        // Do not start rewind while phasing inside solid blocks.
+        // Turning collision back on there would trap/suffocate the player.
+        if (data.isPhasing) {
+            boolean safeToExit = player.level().noCollision(player, player.getBoundingBox());
+            if (!safeToExit) {
+                player.displayClientMessage(
+                    Component.literal("§c请先离开方块内部再开始时间倒流"),
+                    true
+                );
+                return;
+            }
+
+            // Safe position: exit phasing before rewind starts.
+            data.isPhasing = false;
+            player.setData(ModAttachments.SPEED_PLAYER, data);
+            ModNetworking.syncToClient(player);
+        }
+
+        // Clean legacy physics flags from older phasing implementation.
+        if (!player.isSpectator()) {
+            player.noPhysics = false;
+            player.setNoGravity(false);
+        }
 
         ResourceKey<Level> dimension = player.level().dimension();
 

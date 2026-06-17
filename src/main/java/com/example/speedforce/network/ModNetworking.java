@@ -6,6 +6,7 @@ import com.example.speedforce.capability.SpeedPlayerData;
 import com.example.speedforce.client.ClientSpeedData;
 import com.example.speedforce.item.FlashSuitArmorItem;
 import com.example.speedforce.item.SuitType;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
@@ -75,12 +76,7 @@ public class ModNetworking {
         registrar.playToServer(PhasingPayload.TYPE, PhasingPayload.STREAM_CODEC, (payload, context) -> {
             context.enqueueWork(() -> {
                 if (context.player() instanceof ServerPlayer player) {
-                    SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
-                    if (data.hasPower) {
-                        data.isPhasing = !data.isPhasing;
-                        player.setData(ModAttachments.SPEED_PLAYER, data);
-                        syncToClient(player);
-                    }
+                    togglePhasing(player);
                 }
             });
         });
@@ -173,6 +169,51 @@ public class ModNetworking {
                 com.example.speedforce.client.ClientRemnantData.setRemnantActive(payload.hasRemnant(), payload.remainingSeconds());
             });
         });
+    }
+
+    private static void togglePhasing(ServerPlayer player) {
+        SpeedPlayerData data = player.getData(ModAttachments.SPEED_PLAYER);
+
+        if (!data.hasPower || data.speedLevel <= 0) {
+            forceDisablePhasing(player, data);
+            return;
+        }
+
+        if (com.example.speedforce.event.RewindHandler.isPlayerRewinding(player.getUUID())) {
+            return;
+        }
+
+        if (!data.isPhasing) {
+            // Enable phasing
+            data.isPhasing = true;
+        } else {
+            // Before disabling, make sure the player is not inside solid blocks.
+            // Otherwise vanilla collision would immediately suffocate/push them.
+            boolean canExit = player.level().noCollision(player, player.getBoundingBox());
+            if (!canExit) {
+                player.displayClientMessage(
+                    Component.literal("§c请离开方块内部后再关闭穿墙"),
+                    true
+                );
+                return;
+            }
+            data.isPhasing = false;
+        }
+
+        player.setData(ModAttachments.SPEED_PLAYER, data);
+        syncToClient(player);
+    }
+
+    private static void forceDisablePhasing(ServerPlayer player, SpeedPlayerData data) {
+        if (data.isPhasing) {
+            data.isPhasing = false;
+            player.setData(ModAttachments.SPEED_PLAYER, data);
+            syncToClient(player);
+        }
+        if (!player.isSpectator()) {
+            player.noPhysics = false;
+            player.setNoGravity(false);
+        }
     }
 
     public static void syncToClient(ServerPlayer player) {
